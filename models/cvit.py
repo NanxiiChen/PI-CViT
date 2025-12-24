@@ -117,11 +117,10 @@ class MlpBlock(eqx.Module):
         self.act = jax.nn.gelu
 
     def __call__(self, inputs):
-        x = jax.vmap(self.fc1)(inputs)
+        x = self.fc1(inputs)
         x = self.act(x)
-        x = jax.vmap(self.fc2)(x)
+        x = self.fc2(x)
         return x
-
 
 class SelfAttnBlock(eqx.Module):
     norm1: nn.LayerNorm
@@ -157,17 +156,13 @@ class SelfAttnBlock(eqx.Module):
         )
 
     def __call__(self, inputs):
-        # x = self.norm1(inputs)
+        # inputs: (seq_len, emb_dim)
         x = jax.vmap(self.norm1)(inputs)
-        # Equinox MultiheadAttention expects (query, key, value).
-        # For self attention, all are x.
-        # Inputs are (seq_len, emb_dim).
         x = self.attn(x, x, x)
         x = x + inputs
 
-        # y = self.norm2(x)
         y = jax.vmap(self.norm2)(x)
-        y = self.mlp(y)
+        y = jax.vmap(self.mlp)(y)
 
         return x + y
 
@@ -210,20 +205,18 @@ class CrossAttnBlock(eqx.Module):
         )
 
     def __call__(self, q_inputs, kv_inputs):
-        # q = self.norm_q(q_inputs)
-        # kv = self.norm_kv(kv_inputs)
+        # q_inputs: (N_query, emb_dim)
+        # kv_inputs: (N_kv, emb_dim)
         q = jax.vmap(self.norm_q)(q_inputs)
         kv = jax.vmap(self.norm_kv)(kv_inputs)
 
         x = self.attn(q, kv, kv)
         x = x + q_inputs
         
-        # y = self.norm_out(x)
         y = jax.vmap(self.norm_out)(x)
-        y = self.mlp(y)
+        y = jax.vmap(self.mlp)(y)
 
         return x + y
-
 
 class Encoder(eqx.Module):
     patch_embed: PatchEmbed
@@ -332,11 +325,12 @@ class Mlp(eqx.Module):
         self.act = jax.nn.gelu
 
     def __call__(self, inputs):
+        # inputs: (..., in_dim)
         x = inputs
         for layer in self.layers[:-1]:
-            x = jax.vmap(layer)(x)
+            x = layer(x)
             x = self.act(x)
-        x = jax.vmap(self.layers[-1])(x)
+        x = self.layers[-1](x)
         return x
 
 
@@ -394,21 +388,29 @@ class Decoder(eqx.Module):
 
     def __call__(self, x, coords):
         # x: (N_patch, enc_emb_dim)
-        # coords: (N_query, coord_dim)
+        # coords: (coord_dim,) 或 (N_query, coord_dim)
         
-        # Embed coords
-        queries = self.fourier_embs(coords) # (N_query, dec_emb_dim)
+        # 统一处理为序列形式
+        squeeze_output = False
+        if coords.ndim == 1:
+            coords = coords[None, :]  # (1, coord_dim)
+            squeeze_output = True
         
-        # Project encoder output to decoder dim
-        # Change: vmap Linear projection over patch sequence
-        keys_values = jax.vmap(self.proj_x)(x) # (N_patch, dec_emb_dim)
+        queries = self.fourier_embs(coords)  # (1, dec_emb_dim)
         
+        # Project encoder output
+        keys_values = jax.vmap(self.proj_x)(x)  # (N_patch, dec_emb_dim)
+        
+        # Cross attention blocks
         for block in self.blocks:
             queries = block(queries, keys_values)
             
-        # Change: vmap LayerNorm over query sequence
         queries = jax.vmap(self.norm)(queries)
-        output = self.mlp(queries)
+        # Mlp 需要 vmap
+        output = jax.vmap(self.mlp)(queries)  # (1, out_dim)
+        
+        if squeeze_output:
+            output = output.squeeze(0)  # (out_dim,)
         
         return output
 
@@ -467,17 +469,8 @@ class CViT(eqx.Module):
         # x: (C, H, W)
         # coords: (3,) or (N_query, 3)
         
-        # Change: Ensure coords has a sequence dimension
-        squeeze_output = False
-        if coords.ndim == 1:
-            coords = jnp.expand_dims(coords, axis=0) # (1, 3)
-            squeeze_output = True
-        
         enc_out = self.encoder(x)
-        dec_out = self.decoder(enc_out, coords) # (1, out_dim) or (N_query, out_dim)
-        
-        if squeeze_output:
-            dec_out = jnp.squeeze(dec_out, axis=0) # (out_dim,)
+        dec_out = self.decoder(enc_out, coords)
             
         return dec_out
 
