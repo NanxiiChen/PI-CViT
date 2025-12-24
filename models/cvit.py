@@ -1,5 +1,4 @@
 import jax
-jax.config.update("jax_enable_x64", False) # 通常不需要 x64，但确保是 float32
 jax.config.update("jax_default_matmul_precision", "float32") 
 import jax.numpy as jnp
 import jax.random as jr
@@ -388,7 +387,7 @@ class Decoder(eqx.Module):
 
     def __call__(self, x, coords):
         # x: (N_patch, enc_emb_dim)
-        # coords: (coord_dim,) 或 (N_query, coord_dim)
+        # coords: (coord_dim,) or (N_query, coord_dim)
         
         # 统一处理为序列形式
         squeeze_output = False
@@ -480,20 +479,12 @@ if __name__ == "__main__":
     model = CViT(key)
 
     # Dummy input
-    # img = jnp.ones((2, 3, 224, 224))  # (B, C, H, W)
-    # randomly initialize a batch of images
     k_img, k_coords = jr.split(key)
-    img = jr.normal(k_img, (2, 3, 224, 224))
-    coords = jnp.array([
-        [1.0, 2.0, 0.5],
-        [1.0, 1.0, 0.2],
-        ])  # (B, 3)
+    img = jr.normal(k_img, (16, 3, 224, 224))
 
-    # vmap will map over B dimension:
-    # img[i]: (C, H, W)
-    # coords[i]: (3,)
-    # model(img[i], coords[i]) -> (out_dim,)
-    # Final output: (B, out_dim)
+    coords = jr.uniform(k_coords, (16, 3), minval=0.0, maxval=1.0)  # (B, 3)
+    img = img.astype(jnp.float32)
+    coords = coords.astype(jnp.float32)
     
     output = jax.vmap(model)(img, coords)  # (B, out_dim)
     print("Output shape:", output.shape)
