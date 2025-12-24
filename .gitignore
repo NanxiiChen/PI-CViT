@@ -6,7 +6,6 @@ __pycache__/
 ._.DS_Store
 .DS_Store
 helvetica/
-data/
 train2d.sh
 *.pvd
 *.vtu
