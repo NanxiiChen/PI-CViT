@@ -198,7 +198,7 @@ class Losses(eqx.Module):
         total_loss = jnp.sum(jnp.array(losses) * weights)
         
         # 使用 jax.tree_map 优雅地合并加权梯度
-        total_grad = jax.tree_map(
+        total_grad = jax.tree.map(
             lambda *gs: jnp.sum(jnp.stack([w * g for w, g in zip(weights, gs)]), axis=0),
             *grads
         )
@@ -254,7 +254,7 @@ if __name__ == "__main__":
         active_losses=("loss_pde", "loss_ic")
     )
     
-    print("Total loss:", total_loss)
+    print("Total loss:", total_loss.shape)
    
 
 
