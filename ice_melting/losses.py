@@ -227,11 +227,11 @@ if __name__ == "__main__":
     from jax import random as jr
     key = jr.PRNGKey(0)
     
-    model = CViT(out_dim=1, key=key, grid_size=(112, 112))
+    model = CViT(out_dim=1, key=key, grid_size=(112, 112), in_channels=1)
     losses = Losses()
     
     k_img, k_x, k_t = jr.split(key, 3)
-    u = jr.normal(k_img, (16, 3, 112, 112))
+    u = jr.normal(k_img, (16, 1, 112, 112))
 
     x_coord = jr.uniform(k_x, (16, 2), minval=0.0, maxval=1.0)  # (B, 2) 空间坐标
     t_coord = jr.uniform(k_t, (16, 1), minval=0.0, maxval=1.0)  # (B, 1) 时间坐标
@@ -244,7 +244,7 @@ if __name__ == "__main__":
     def ic_fn(x):
         return jnp.sin(jnp.pi * x[0]) * jnp.sin(jnp.pi * x[1])
     
-    total_loss, total_grad = losses.loss_fn(
+    (total_loss, (losses, weights, aux_vars)), total_grad = losses.loss_fn(
         model,
         u,
         x_coord,

@@ -120,6 +120,8 @@ for b in range(B):
     # 随机生成参数   
     a_val = np.random.uniform(20, 40)
     b_val = np.random.uniform(20, 40)
+    if a_val < b_val:
+        a_val, b_val = b_val, a_val  # 确保 a 是长轴
     theta_val = np.random.uniform(0, np.pi)
     # for a standard circle
     # a_val = 30

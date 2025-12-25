@@ -426,7 +426,7 @@ class CViT(eqx.Module):
         self,
         key: jr.PRNGKey,
         patch_size: Tuple[int, int] = (16, 16),
-        grid_size: Tuple[int, int] = (224, 224),
+        grid_size: Tuple[int, int] = (224, 224), # H, W
         in_channels: int = 3,
         emb_dim: int = 768,
         depth: int = 12,
@@ -481,11 +481,11 @@ class CViT(eqx.Module):
 
 if __name__ == "__main__":
     key = jr.PRNGKey(0)
-    model = CViT(key)
+    model = CViT(key, in_channels=1, out_dim=2, grid_size=(224, 224))
 
     # Dummy input
     k_img, k_x, k_t = jr.split(key, 3)
-    u = jr.normal(k_img, (16, 3, 224, 224))
+    u = jr.normal(k_img, (16, 1, 224, 224)) # B, C, H, W
 
     x_coord = jr.uniform(k_x, (16, 2), minval=0.0, maxval=1.0)  # (B, 2) 空间坐标
     t_coord = jr.uniform(k_t, (16, 1), minval=0.0, maxval=1.0)  # (B, 1) 时间坐标
