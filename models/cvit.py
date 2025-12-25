@@ -487,12 +487,12 @@ if __name__ == "__main__":
     k_img, k_x, k_t = jr.split(key, 3)
     u = jr.normal(k_img, (16, 1, 224, 224)) # B, C, H, W
 
-    x_coord = jr.uniform(k_x, (16, 2), minval=0.0, maxval=1.0)  # (B, 2) 空间坐标
-    t_coord = jr.uniform(k_t, (16, 1), minval=0.0, maxval=1.0)  # (B, 1) 时间坐标
+    x_coord = jr.uniform(k_x, (100, 2), minval=0.0, maxval=1.0)  # (N_query, 2) 空间坐标，每个batch都一样
+    t_coord = jr.uniform(k_t, (100, 1), minval=0.0, maxval=1.0)  # (N_query, 1) 时间坐标
     
     u = u.astype(jnp.float32)
     x_coord = x_coord.astype(jnp.float32)
     t_coord = t_coord.astype(jnp.float32)
     
-    output = jax.vmap(model)(u, x_coord, t_coord)  # (B, out_dim)
+    output = jax.vmap(model, in_axes=(0, None, None))(u, x_coord, t_coord)  # (B, N_query, out_dim)
     print("Output shape:", output.shape)

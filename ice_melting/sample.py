@@ -107,16 +107,19 @@ class FunctionSampler:
         
 
     def sample_params(self, num_u_samples: int, key: jax.Array) -> jnp.ndarray:
-        """Randomly sample ellipse parameters (a, b, theta) with a >= b."""
-        keys = jax.random.split(key, 3)
-        a_raw = jax.random.uniform(keys[0], (num_u_samples, 1), minval=self.a_range[0], maxval=self.a_range[1])
-        b_raw = jax.random.uniform(keys[1], (num_u_samples, 1), minval=self.b_range[0], maxval=self.b_range[1])
+        """Use LHS to sample ellipse parameters (a, b, theta) with a >= b."""
+        mins = jnp.array([self.a_range[0], self.b_range[0], self.theta_range[0]])
+        maxs = jnp.array([self.a_range[1], self.b_range[1], self.theta_range[1]])
         
-        # Ensure a is the semi-major axis (a >= b) to remove geometric redundancy
+        samples = lhs_sampling(mins, maxs, num_u_samples, key)
+        a_raw = samples[:, 0:1]
+        b_raw = samples[:, 1:2]
+        theta = samples[:, 2:3]
+        
+        # enforce a >= b
         a = jnp.maximum(a_raw, b_raw)
         b = jnp.minimum(a_raw, b_raw)
         
-        theta = jax.random.uniform(keys[2], (num_u_samples, 1), minval=self.theta_range[0], maxval=self.theta_range[1])
         return jnp.concatenate([a, b, theta], axis=-1) # shape (num_u_samples, 3)
 
     def evaluate(self, epsilon: float, params: jnp.ndarray) -> jnp.ndarray:
@@ -153,11 +156,36 @@ class FunctionSampler:
         return u
 
 
+class DataFactory:
+    """
+    Coordinates FunctionSampler and CoordSampler to produce training batches.
+    """
+    def __init__(self, func_sampler: FunctionSampler, coord_sampler: CoordSampler):
+        self.func_sampler = func_sampler
+        self.coord_sampler = coord_sampler
+
+    def get_batch(self, key: jax.Array, num_u: int, epsilon: float):
+        key_u, key_coords = jax.random.split(key)
+        
+        # 1. 采样输入函数的参数并生成场 (B, 1, H, W)
+        params = self.func_sampler.sample_params(num_u, key_u)
+        u0_grid = self.func_sampler.evaluate(epsilon, params)
+        
+        # 2. 采样 PDE 残差计算点 (N_pde, 3) 和 IC 检查点 (N_ic, 3)
+        pde_points, ic_points = self.coord_sampler.resample(key_coords)
+        
+        return {
+            "u0": u0_grid,           # 输入场
+            "params": params,       # 椭圆参数 (a, b, theta)
+            "pde_points": pde_points, # (N_pde, 3) -> [x, y, t]
+            "ic_points": ic_points    # (N_ic, 3)  -> [x, y, 0]
+        }
+
 if __name__ == "__main__":
     # sample and plot
     import matplotlib.pyplot as plt
-    fs = FunctionSampler()
-    key = jax.random.PRNGKey(333)
+    fs = FunctionSampler(grid_size=(64,64))
+    key = jax.random.PRNGKey(0)
     params = fs.sample_params(8, key)
     u = fs.evaluate(1.0, params)
     print(u.shape)
@@ -166,7 +194,7 @@ if __name__ == "__main__":
     for i in range(8):
         ax = axes[i]
         # im = ax.contourf(fs.coords[0], fs.coords[1], u[i, 0], levels=50, cmap='RdBu')
-        ax.pcolormesh(fs.coords[0], fs.coords[1], u[i, 0], shading='auto', cmap='RdBu', rasterized=True)
+        ax.pcolormesh(fs.coords[0], fs.coords[1], u[i, 0], shading='auto', cmap='coolwarm', rasterized=True)
         ax.set_title(f'a={params[i,0]:.1f}, b={params[i,1]:.1f}, θ={params[i,2]/jnp.pi*180:.2f}')
     plt.savefig('sample_function_sampler.png')
     plt.close()
@@ -185,3 +213,9 @@ if __name__ == "__main__":
     ax.set_zlabel('T')
     ax.legend()
     plt.savefig('sample_coord_sampler.png')
+
+    factory = DataFactory(fs, cs)
+    batch = factory.get_batch(key, num_u=16, epsilon=1.0)
+    
+    print(f"Input u0 shape: {batch['u0'].shape}")           # (16, 1, 224, 224)
+    print(f"PDE points shape: {batch['pde_points'].shape}") # (1024, 3)
