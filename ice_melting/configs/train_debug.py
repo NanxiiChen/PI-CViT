@@ -42,6 +42,7 @@ class Config:
     
     lbd = 5.0
     N_val = 63 # element num in fem, points is N_val + 1
+    M_val = 0.1
 
     @property
     def h_val(self):

@@ -267,20 +267,20 @@ class Encoder(eqx.Module):
         
         self.norm = nn.LayerNorm(emb_dim, eps=layer_norm_eps)
 
-    def __call__(self, x):
-        # x: (C, H, W)
-        x = self.patch_embed(x) # (N, D)
+    def __call__(self, u):
+        # u: (C, H, W)
+        u = self.patch_embed(u) # (N, D)
         
         # Add pos embed
         # Ensure shapes match. pos_emb is (N, D)
-        x = x + self.pos_emb
+        u = u + self.pos_emb
         
         for block in self.blocks:
-            x = block(x)
+            u = block(u)
             
-        # x = self.norm(x)
-        x = jax.vmap(self.norm)(x)
-        return x
+        # u = self.norm(u)
+        u = jax.vmap(self.norm)(u)
+        return u
 
 
 class FourierEmbs(eqx.Module):
@@ -385,9 +385,13 @@ class Decoder(eqx.Module):
             in_dim=dec_emb_dim
         )
 
-    def __call__(self, x, coords):
-        # x: (N_patch, enc_emb_dim)
-        # coords: (coord_dim,) or (N_query, coord_dim)
+    def __call__(self, u, x, t):
+        # u: (N_patch, enc_emb_dim)
+        # x: (spatial_dim,) or (N_query, spatial_dim)
+        # t: (1,) or (N_query, 1)
+        
+        # 合并空间坐标 x 和时间坐标 t
+        coords = jnp.concatenate([x, t], axis=-1)
         
         # 统一处理为序列形式
         squeeze_output = False
@@ -398,7 +402,7 @@ class Decoder(eqx.Module):
         queries = self.fourier_embs(coords)  # (1, dec_emb_dim)
         
         # Project encoder output
-        keys_values = jax.vmap(self.proj_x)(x)  # (N_patch, dec_emb_dim)
+        keys_values = jax.vmap(self.proj_x)(u)  # (N_patch, dec_emb_dim)
         
         # Cross attention blocks
         for block in self.blocks:
@@ -464,12 +468,13 @@ class CViT(eqx.Module):
             layer_norm_eps=layer_norm_eps
         )
 
-    def __call__(self, x, coords):
-        # x: (C, H, W)
-        # coords: (3,) or (N_query, 3)
+    def __call__(self, u, x, t):
+        # u: (C, H, W)
+        # x: (spatial_dim,) or (N_query, spatial_dim)
+        # t: (1,) or (N_query, 1)
         
-        enc_out = self.encoder(x)
-        dec_out = self.decoder(enc_out, coords)
+        enc_out = self.encoder(u)
+        dec_out = self.decoder(enc_out, x, t)
             
         return dec_out
 
@@ -479,12 +484,15 @@ if __name__ == "__main__":
     model = CViT(key)
 
     # Dummy input
-    k_img, k_coords = jr.split(key)
-    img = jr.normal(k_img, (16, 3, 224, 224))
+    k_img, k_x, k_t = jr.split(key, 3)
+    u = jr.normal(k_img, (16, 3, 224, 224))
 
-    coords = jr.uniform(k_coords, (16, 3), minval=0.0, maxval=1.0)  # (B, 3)
-    img = img.astype(jnp.float32)
-    coords = coords.astype(jnp.float32)
+    x_coord = jr.uniform(k_x, (16, 2), minval=0.0, maxval=1.0)  # (B, 2) 空间坐标
+    t_coord = jr.uniform(k_t, (16, 1), minval=0.0, maxval=1.0)  # (B, 1) 时间坐标
     
-    output = jax.vmap(model)(img, coords)  # (B, out_dim)
+    u = u.astype(jnp.float32)
+    x_coord = x_coord.astype(jnp.float32)
+    t_coord = t_coord.astype(jnp.float32)
+    
+    output = jax.vmap(model)(u, x_coord, t_coord)  # (B, out_dim)
     print("Output shape:", output.shape)
