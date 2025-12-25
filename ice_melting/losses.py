@@ -45,6 +45,7 @@ class Losses(eqx.Module):
         phi_fn = lambda x, t: model(u, x, t)[0]
         dphi_dt = jax.grad(phi_fn, argnums=1)(x, t)[0] # scalar
         hess_phi = jax.hessian(phi_fn, argnums=0)(x, t) # (D, D)
+        assert hess_phi.shape == (x.shape[0], x.shape[0]), f"Hessian shape incorrect: {hess_phi.shape}"
         laplacian_phi = jnp.trace(hess_phi) # scalar
         
         F_phi = (phi**2 - 1) **2 / 4.0
@@ -197,7 +198,6 @@ class Losses(eqx.Module):
         weights = self.grad_norm_weights(grads)
         total_loss = jnp.sum(jnp.array(losses) * weights)
         
-        # 使用 jax.tree_map 优雅地合并加权梯度
         total_grad = jax.tree.map(
             lambda *gs: jnp.sum(jnp.stack([w * g for w, g in zip(weights, gs)]), axis=0),
             *grads
@@ -254,7 +254,7 @@ if __name__ == "__main__":
         active_losses=("loss_pde", "loss_ic")
     )
     
-    print("Total loss:", total_loss.shape)
+    print("Total loss:", total_loss)
    
 
 

@@ -12,15 +12,13 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "Python 调试程序: icemelting",
+            "name": "Python 调试程序: ice_melting",
             "type": "debugpy",
             "request": "launch",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "module": "icemelting.train",
+            "module": "ice_melting.sample",
             "args": [
-                "--configs",
-                "train_debug"
             ]
         },
     ]

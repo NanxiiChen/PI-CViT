@@ -6,8 +6,8 @@ import jax.numpy as jnp
 class Config:
     model = "cvit"
     data_dir = "./data/ice_melting/ellipse"
-    spatial_domain = [[-0.5, 0.5], [-0.5, 0.5]] # x range, y range, normalized
-    temporal_domain = [0.0, 3.0] # t range
+    spatial_domain = ((-0.5, 0.5), (-0.5, 0.5))# x range, y range, normalized
+    temporal_domain = (0.0, 3.0) # t range
     Lc = 100.0 # xc = x / Lc
     Tc = 1.0 # tc = t / Tc
     
