@@ -6,6 +6,7 @@ import jax.numpy as jnp
 class Config:
     model_name = "cvit"
     data_dir = "./data/ice_melting/ellipse"
+    save_dir = "/root/autodl_tmp/tf-logs/ice_melting/debug"
     spatial_domain = ((-0.5, 0.5), (-0.5, 0.5))# x range, y range, normalized
     temporal_domain = (0.0, 3.0) # t range
     a_range = (20, 40)
@@ -20,7 +21,7 @@ class Config:
     model_params = dict(
         ## model:encoder
         patch_size = (8, 8),
-        grid_size = (112, 112),
+        grid_size = (64, 64),
         in_channels = 1, # phi
         emb_dim = 384, # emb_dim for encoder
         depth = 6,

@@ -20,6 +20,7 @@ class Losses(eqx.Module):
     def residual_pde(self, 
                     model: Union[eqx.Module, CViT], # mostly CViT here
                     u: jnp.ndarray,
+                    param: jnp.ndarray,
                     x: jnp.ndarray,
                     t: jnp.ndarray,
                     cfg: Config,
@@ -31,6 +32,7 @@ class Losses(eqx.Module):
         Args:
             model: The neural operator model (CViT) that predicts the phase field.
             u: The parametrized input function of shape (C, H, W).
+            param: Parameters for input function u, shape (unused here, for API consistency).
             x: Spatial coordinate array of shape (N_query, D).
             t: Time coordinate array of shape (N_query, 1).
             cfg: Configuration object containing physical parameters.
@@ -44,25 +46,34 @@ class Losses(eqx.Module):
         Tc = cfg.Tc  # Characteristic time scale
         
         enc_out = model.encoder(u) # (N_patch, emb_dim)
-        
+
         def phi_single(xi, ti):
             # N_query = 1
             # out_dim = 1
             sol = model.decoder(enc_out, xi[None, :], ti[None, :]) # (1, 1)
             return sol[0, 0] # scalar
         
-        dphi_dt = jax.vmap(jax.grad(phi_single, argnums=1), in_axes=(0, 0))(x, t)  # (N_query, 1)
-        dphi_dt = dphi_dt[:, 0] / Tc  # (N_query,)
-        # assert dphi_dt.shape == (x.shape[0],), f"dphi_dt shape incorrect: {dphi_dt.shape}"
+        def compute_pde_terms(xi, ti):
+            phi, (grad_x, grad_t) = jax.value_and_grad(
+                phi_single, argnums=(0, 1), has_aux=False
+            )(xi, ti)  # scalar, (2,), (1,)
+
+            def grad_x_fn(pos):
+                return jax.grad(phi_single, argnums=0)(pos, ti)
+            
+            basis_x = jnp.array([1.0, 0.0])
+            basis_y = jnp.array([0.0, 1.0])
+
+            _, hess_x = jax.jvp(grad_x_fn, (xi,), (basis_x,))
+            _, hess_y = jax.jvp(grad_x_fn, (xi,), (basis_y,))
+
+            laplacian_phi = hess_x[0] + hess_y[1]
+            return phi, grad_t[0], laplacian_phi
         
-        def laplacian_fn(xi, ti):
-            # N_query = 1
-            hess = jax.hessian(phi_single, argnums=0)(xi, ti) # (D, D)
-            # assert hess.shape == (x.shape[1], x.shape[1]), f"Hessian shape incorrect: {hess.shape}"
-            return jnp.trace(hess) # scalar
-        laplacian_phi = jax.vmap(laplacian_fn, in_axes=(0, 0))(x, t) / Lc**2  # (N_query,)
+        phi, dphi_dt, laplacian_phi = jax.vmap(
+            compute_pde_terms, in_axes=(0, 0)
+        )(x, t)  # (N_query,), (N_query,), (N_query
         
-        phi = model.decoder(enc_out, x, t)[:, 0]  # (N_query,)
         
         F_phi = (phi**2 - 1) **2 / 4.0
         dF_dphi = phi**3 - phi
@@ -81,6 +92,7 @@ class Losses(eqx.Module):
     
     def loss_pde(self, 
                  model: eqx.Module,
+                 params: jnp.ndarray,
                  u: jnp.ndarray,
                  x: jnp.ndarray,
                  t: jnp.ndarray,
@@ -93,6 +105,7 @@ class Losses(eqx.Module):
         Args:
             model: The neural operator model (CViT).
             u: Input function batch of shape (B, C, H, W).
+            params: Parameters for input function u, shape (B, ...). But unused here. Just for API consistency.
             x: Shared spatial coordinate array of shape (N_query, D).
             t: Shared time coordinate array of shape (N_query, 1).
             cfg: Configuration object containing physical parameters.
@@ -104,8 +117,8 @@ class Losses(eqx.Module):
 
         residuals = jax.vmap(
             self.residual_pde, 
-            in_axes=(None, 0, None, None, None)
-        )(model, u, x, t, cfg)  # (B, N_query)
+            in_axes=(None, 0, 0,  None, None, None)
+        )(model, u, params,  x, t, cfg)  # (B, N_query)
         # assert residuals.shape == (u.shape[0], x.shape[0]), f"Residuals shape incorrect: {residuals.shape}"
         mse_loss = jnp.mean(jnp.square(residuals))
         return mse_loss, {}
@@ -187,8 +200,8 @@ class Losses(eqx.Module):
                 model: eqx.Module,
                 u: jnp.ndarray,
                 params: jnp.ndarray,
-                x: jnp.ndarray,
-                t: jnp.ndarray,
+                pde_coords: jnp.ndarray,
+                ic_coords: jnp.ndarray,
                 cfg: Config,
                 ic_fn: Callable[[jnp.ndarray], jnp.ndarray],
                 active_losses: Tuple[str, ...] = ("loss_pde", "loss_ic"),
@@ -199,8 +212,8 @@ class Losses(eqx.Module):
             model: The neural operator model (CViT) to differentiate.
             u: Input function batch of shape (B, C, H, W).
             params: params for input function u, which determine the ICs. shape (B, 3).
-            x: Shared spatial coordinate array of shape (N_query, D).
-            t: Shared time coordinate array of shape (N_query, 1).
+            pde_coords: Spatial and temporal coordinates for PDE residual evaluation, shape (N_query_pde, D+1).
+            ic_coords: Spatial coordinates for IC residual evaluation, shape (N_query_ic, D+1).
             cfg: Configuration object containing physical parameters.
             ic_fn: A callable function for initial condition.
             active_losses: A tuple of method names to include in the loss calculation.
@@ -214,6 +227,12 @@ class Losses(eqx.Module):
         aux_vars = {}
         
         for name in active_losses:
+            if name == "loss_pde":
+                x, t = pde_coords[:, :-1], pde_coords[:, -1:]
+            elif name == "loss_ic":
+                x, t = ic_coords[:, :-1], ic_coords[:, -1:]
+            else:
+                raise ValueError(f"Unknown loss component: {name}")
             l_fn = getattr(self, name)
             vg_fn = eqx.filter_value_and_grad(l_fn,  has_aux=True)
             (loss, aux), grad = vg_fn(
@@ -248,7 +267,7 @@ class Losses(eqx.Module):
 
         grad_norms = jnp.array([tree_norm(g) for g in grads])
         grad_norms = jnp.clip(grad_norms, eps, 1 / eps)
-        weights = grad_norms[0] / (grad_norms + eps)
+        weights = jnp.mean(grad_norms) / grad_norms
         weights = jnp.nan_to_num(weights)
         weights = jnp.clip(weights, eps, 1 / eps)
         return jax.lax.stop_gradient(weights)

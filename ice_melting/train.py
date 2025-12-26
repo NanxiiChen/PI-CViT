@@ -32,24 +32,24 @@ def ic_fn(a, b, theta, x, y, epsilon):
 
 @eqx.filter_jit
 def train_step(
-    model,
-    loss_fn,
-    state,
-    optimizer,
-    batch_u,
-    batch_params,
-    x_coords,
-    t_coords,
-    cfg,
-    ic_fn,
+    model: eqx.Module,
+    loss_fn: Losses.loss_fn,
+    state: optax.OptState,
+    optimizer: optax.GradientTransformation,
+    batch_u: jnp.ndarray,
+    batch_params: jnp.ndarray,
+    pde_coords: jnp.ndarray,
+    ic_coords: jnp.ndarray,
+    cfg: dict,
+    ic_fn: callable,
     **kwargs
 ):
     # batch_u: (B, 1, H, W)
     # batch_params: (B, 3)
-    # x_coords: (N_query, 2)
-    # t_coords: (N_query, 1)
+    # pde_coords: (N_query=num_pde_samples, 3)
+    # ic_coords: (N_query=num_ic_samples, 3)
     (total_loss, (losses, weights, aux_vars)), total_grad = loss_fn(
-        model, batch_u, batch_params, x_coords, t_coords, cfg, ic_fn, **kwargs
+        model, batch_u, batch_params, pde_coords, ic_coords, cfg, ic_fn, **kwargs
     )
     updates, new_state = optimizer.update(total_grad, state, model)
     new_model = eqx.apply_updates(model, updates)
@@ -67,6 +67,9 @@ def main():
     )
     args = arg_parser.parse_args()
     configs = load_configs(args.configs)
+
+    save_dir = configs.save_dir
+    os.makedirs(save_dir, exist_ok=True)
 
     # Data preparation
     func_sampler = FunctionSampler(
@@ -91,72 +94,57 @@ def main():
     
     
     subkey, key = jax.random.split(key)
-    batch_u, batch_params, pde_coords, ic_coords = data_factory.get_batch(subkey, epsilon=configs.epsilon)
-    
-    subkey, key = jax.random.split(key)
     model_params = configs.model_params
     model = get_model(
         model_name=configs.model_name,
         key=subkey,
         **model_params,
     )
-    print(model)
+    # print(model)
     losses = Losses()
     loss_fn = losses.loss_fn
-    
-    loss = loss_fn(
-        model, batch_u, batch_params, pde_coords[:, :2], pde_coords[:, 2:], configs, ic_fn,
+
+    scheduler = optax.exponential_decay(
+        init_value=configs.initial_lr,
+        transition_steps=configs.decay_every,
+        decay_rate=configs.decay_rate,
+        staircase=False,
+        end_value=1e-5,
     )
-    print("Initial loss:", loss[0])
-    
-    
-    
-    # fig, axes = plt.subplots(4, 4, figsize=(12, 12))
-    # axes = axes.flatten()
-    # for i in range(16):
-    #     ax = axes[i]
-    #     ax.pcolormesh(
-    #         func_sampler.coords[0],
-    #         func_sampler.coords[1],
-    #         batch_u[i, 0],
-    #         shading="auto",
-    #         rasterized=True,
-    #     )
-    #     ax.set_title(f'a={batch_params[i,0]:.1f}, b={batch_params[i,1]:.1f}, θ={batch_params[i,2]/jnp.pi*180:.2f}')
+    optimizer = optax.adam(scheduler)
+    opt_state = optimizer.init(eqx.filter(model, eqx.is_array))
+
+
+    epochs = configs.num_epochs
+    for epoch in range(1):
+        subkey, key = jax.random.split(key)
+        batch_u, batch_params, pde_coords, ic_coords =\
+              data_factory.get_batch(subkey, epsilon=configs.epsilon)
         
-    # plt.tight_layout()
-    # plt.savefig("tmp/sampled_initial_conditions.png", dpi=300)
-    # plt.close()
-    
-    # fig, ax = plt.subplots(figsize=(6, 4), subplot_kw={"projection": "3d"})
-    # ax.scatter(
-    #     pde_coords[:, 0],
-    #     pde_coords[:, 1],
-    #     pde_coords[:, 2],
-    #     s=1,
-    #     c="b",
-    #     marker=".",
-    #     label="PDE points",
-    # )
-    # ax.scatter(
-    #     ic_coords[:, 0],
-    #     ic_coords[:, 1],
-    #     ic_coords[:, 2],
-    #     s=1,
-    #     c="r",
-    #     marker=".",
-    #     label="IC points",
-    # )
-    # ax.set_xlabel("x")
-    # ax.set_ylabel("y")
-    # ax.set_zlabel("t")
-    # ax.set_title("Sampled Coordinates")
-    # ax.legend()
-    # plt.tight_layout()
-    # plt.savefig("tmp/sampled_coordinates.png", dpi=300)
-    # plt.close()
-    
-    
+        model, opt_state, total_loss, loss_values, weights, aux_vars = train_step(
+            model,
+            loss_fn,
+            opt_state,
+            optimizer,
+            batch_u,
+            batch_params,
+            pde_coords,
+            ic_coords,
+            configs,
+            ic_fn,
+        )
+        print(
+            f"Epoch {epoch+1}/{epochs}, "
+            f"Loss PDE: {loss_values['pde_loss']:.6f}, "
+            f"Loss IC: {loss_values['ic_loss']:.6f}, "
+            f"Total Loss: {total_loss:.6f}"
+        )
+
+        if epoch % configs.save_every == 0:
+            eqx.tree_serialise_leaves(
+                os.path.join(save_dir, f"model_epoch_{epoch}.eqx"),
+                model,
+            )
     
 if __name__ == "__main__":
     main()
