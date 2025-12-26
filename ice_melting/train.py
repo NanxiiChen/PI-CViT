@@ -1,6 +1,7 @@
 import argparse
 import os
 from functools import partial
+import time
 
 import equinox as eqx
 import jax
@@ -8,6 +9,8 @@ import jax.numpy as jnp
 import optax
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
+
+from tensorboardX import SummaryWriter
 
 # from .configs import Configs
 from models import get_model
@@ -68,8 +71,9 @@ def main():
     args = arg_parser.parse_args()
     configs = load_configs(args.configs)
 
-    save_dir = configs.save_dir
+    save_dir = configs.save_dir + time.strftime("/%Y%m%d-%H%M%S")
     os.makedirs(save_dir, exist_ok=True)
+    writer = SummaryWriter(log_dir=save_dir)
 
     # Data preparation
     func_sampler = FunctionSampler(
@@ -103,6 +107,7 @@ def main():
     # print(model)
     losses = Losses()
     loss_fn = losses.loss_fn
+    active_loss_names = ["pde", "ic"]
 
     scheduler = optax.exponential_decay(
         init_value=configs.initial_lr,
@@ -116,7 +121,7 @@ def main():
 
 
     epochs = configs.num_epochs
-    for epoch in range(1):
+    for epoch in range(epochs):
         subkey, key = jax.random.split(key)
         batch_u, batch_params, pde_coords, ic_coords =\
               data_factory.get_batch(subkey, epsilon=configs.epsilon)
@@ -133,18 +138,31 @@ def main():
             configs,
             ic_fn,
         )
-        print(
-            f"Epoch {epoch+1}/{epochs}, "
-            f"Loss PDE: {loss_values['pde_loss']:.6f}, "
-            f"Loss IC: {loss_values['ic_loss']:.6f}, "
-            f"Total Loss: {total_loss:.6f}"
-        )
+
+
+
+        if epoch % configs.log_every == 0:
+            print(
+                f"Epoch {epoch}/{epochs}, "
+                f"Each loss: {', '.join([f'{lv:.4e}' for lv in loss_values])}, "
+                f"Each weight: {', '.join([f'{w:.4e}' for w in weights])}, "
+            )
+
+            writer.add_scalar("loss/total", total_loss.item(), epoch)
+            for i, lv in enumerate(loss_values):
+                writer.add_scalar(f"loss/loss_{active_loss_names[i]}", lv.item(), epoch)
+            for i, w in enumerate(weights):
+                writer.add_scalar(f"weight/weight_{active_loss_names[i]}", w.item(), epoch)
+
+            writer.flush()
 
         if epoch % configs.save_every == 0:
             eqx.tree_serialise_leaves(
                 os.path.join(save_dir, f"model_epoch_{epoch}.eqx"),
                 model,
             )
+    
+    writer.close()
     
 if __name__ == "__main__":
     main()

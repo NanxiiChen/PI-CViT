@@ -73,7 +73,10 @@ class Losses(eqx.Module):
         phi, dphi_dt, laplacian_phi = jax.vmap(
             compute_pde_terms, in_axes=(0, 0)
         )(x, t)  # (N_query,), (N_query,), (N_query
-        
+    
+
+        dphi_dt = dphi_dt / Tc
+        laplacian_phi = laplacian_phi / (Lc**2)
         
         F_phi = (phi**2 - 1) **2 / 4.0
         dF_dphi = phi**3 - phi
@@ -154,11 +157,11 @@ class Losses(eqx.Module):
         
         sol = model(u, x, t) # (N_query, out_dim)
         phi_pred = sol[:, 0] # (N_query,)
-        # phi_ref = jax.vmap(ic_fn, in_axes=(None, None, None, 0, 0, None))(
-        #     param[0], param[1], param[2], x[:, 0], x[:, 1], cfg.epsilon
-        # )
+        
+        x_phys = x * cfg.Lc
+        
         phi_ref = ic_fn(
-            param[0], param[1], param[2], x[:, 0], x[:, 1], cfg.epsilon
+            param[0], param[1], param[2], x_phys[:, 0], x_phys[:, 1], cfg.epsilon
         ) # (N_query,)
         ic_residual = phi_pred - phi_ref
         assert ic_residual.shape == (x.shape[0],), f"IC residual shape incorrect: {ic_residual.shape}"
@@ -244,11 +247,14 @@ class Losses(eqx.Module):
                 cfg=cfg,
                 ic_fn=ic_fn
             )
+            # covnert nan or inf grads to zero
+            grad = jax.tree.map(lambda g: jnp.nan_to_num(g), grad)
             losses.append(loss)
             grads.append(grad)
             aux_vars.update(aux)
             
         weights = self.grad_norm_weights(grads)
+        weights = weights.at[-1].set(2*weights[-1])  # Emphasize IC loss
         total_loss = jnp.sum(jnp.array(losses) * weights)
         
         total_grad = jax.tree.map(

@@ -6,7 +6,7 @@ import jax.numpy as jnp
 class Config:
     model_name = "cvit"
     data_dir = "./data/ice_melting/ellipse"
-    save_dir = "/root/autodl_tmp/tf-logs/ice_melting/debug"
+    save_dir = "/root/autodl-tmp/tf-logs/ice_melting/debug"
     spatial_domain = ((-0.5, 0.5), (-0.5, 0.5))# x range, y range, normalized
     temporal_domain = (0.0, 3.0) # t range
     a_range = (20, 40)
@@ -38,13 +38,14 @@ class Config:
     )
     
     # training hyperparameters
-    num_epochs = 5000
+    num_epochs = 10000
     initial_lr = 5e-4
     decay_every = 200
     decay_rate = 0.95
     batch_size = 64
-    save_every = 100
-    test_every = 100
+    save_every = 200
+    log_every = 50
+
     num_u_samples = 16
     num_pde_samples = 1024
     num_ic_samples = 256

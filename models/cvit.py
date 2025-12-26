@@ -44,7 +44,7 @@ def get_2d_sincos_pos_embed(embed_dim, grid_size):
 
     grid_h = jnp.arange(grid_size[0], dtype=jnp.float32)
     grid_w = jnp.arange(grid_size[1], dtype=jnp.float32)
-    grid = jnp.meshgrid(grid_w, grid_h, indexing="ij")  # here w goes first
+    grid = jnp.meshgrid(grid_h, grid_w, indexing="xy")
     grid = jnp.stack(grid, axis=0)
 
     grid = grid.reshape([2, 1, grid_size[0], grid_size[1]])
