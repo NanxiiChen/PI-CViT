@@ -17,7 +17,7 @@
             "request": "launch",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "module": "ice_melting.losses",
+            "module": "ice_melting.train",
             "args": [
             ]
         },

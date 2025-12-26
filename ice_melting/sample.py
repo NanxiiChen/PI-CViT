@@ -1,6 +1,8 @@
-from typing import Tuple, List
+from typing import Tuple
+
 import jax
 import jax.numpy as jnp
+
 from models.sample import lhs_sampling
 
 
@@ -80,9 +82,9 @@ class FunctionSampler:
                  a_range=(20,40), # actual lengths
                  b_range=(20,40), # actual lengths
                  theta_range=(0,jnp.pi),
-                 spatial_domain=((-0.5, 0.5), (-0.5, 0.5)), # normalized
+                 spatial_domain=((-50, 50), (-50, 50)), # actual lengths
                  grid_size=(224,224),
-                 Lc=100, # feature edge length
+                 num_u_samples=16
                  ):
         """
         Initialize the function sampler.
@@ -91,9 +93,9 @@ class FunctionSampler:
             a_range: Range for the semi-major axis.
             b_range: Range for the semi-minor axis.
             theta_range: Range for the rotation angle.
-            spatial_domain: Normalized spatial boundaries.
+            spatial_domain: Spatial boundaries of actual lengths. Note this is different with the normalized domain used in CoordSampler and the model.
             grid_size: Resolution of the output grid (H, W).
-            Lc: Characteristic length scale to map normalized coords to physical domain.
+            
         """
         # Calculate epsilon based on FEM logic
         self.a_range = a_range
@@ -103,15 +105,16 @@ class FunctionSampler:
         coord_y = jnp.linspace(spatial_domain[1][0], spatial_domain[1][1], grid_size[0])
         xv, yv = jnp.meshgrid(coord_x, coord_y, indexing='xy')
         # formulate coords as (2, H, W)
-        self.coords = jnp.stack([xv, yv], axis=0) * Lc  # scale to physical domain
+        self.coords = jnp.stack([xv, yv], axis=0)
+        self.num_u_samples = num_u_samples
         
 
-    def sample_params(self, num_u_samples: int, key: jax.Array) -> jnp.ndarray:
+    def sample_params(self, key: jax.Array) -> jnp.ndarray:
         """Use LHS to sample ellipse parameters (a, b, theta) with a >= b."""
         mins = jnp.array([self.a_range[0], self.b_range[0], self.theta_range[0]])
         maxs = jnp.array([self.a_range[1], self.b_range[1], self.theta_range[1]])
         
-        samples = lhs_sampling(mins, maxs, num_u_samples, key)
+        samples = lhs_sampling(mins, maxs, self.num_u_samples, key)
         a_raw = samples[:, 0:1]
         b_raw = samples[:, 1:2]
         theta = samples[:, 2:3]
@@ -122,6 +125,24 @@ class FunctionSampler:
         
         return jnp.concatenate([a, b, theta], axis=-1) # shape (num_u_samples, 3)
 
+
+    def eval_one_sample(self, a, b, theta, x, y, epsilon):
+        """Compute single `u` sample for given ellipse parameters on the grid or one coordinate. """
+        # a, b, theta: scalars
+        # Coordinate rotation 
+        x_rot = x * jnp.cos(theta) + y * jnp.sin(theta) # (H, W) or scalar 
+        y_rot = -x * jnp.sin(theta) + y * jnp.cos(theta) # (H, W) or scaler
+
+        # Ellipse distance calculation
+        term = jnp.sqrt((x_rot / a)**2 + (y_rot / b)**2) 
+        scale = 2 * a * b / (a + b)
+        dist = scale * (1.0 - term) # shape (H, W) or scalar
+
+        # Phase field representation using tanh
+        u = jnp.tanh(dist / (jnp.sqrt(2) * epsilon)) # shape (H, W) or scalar
+        return u[None, ...]  # shape (1, H, W) or (1,)
+    
+        
     def evaluate(self, epsilon: float, params: jnp.ndarray) -> jnp.ndarray:
         """
         Evaluate the scalar field u for given ellipse parameters on the fixed grid.
@@ -134,24 +155,9 @@ class FunctionSampler:
             u: Scalar field array of shape (B, 1, H, W).
         """
         
-        def eval_one_sample(a, b, theta, x, y, epsilon):
-            """Compute u for a single set of parameters."""
-            # Coordinate rotation 
-            x_rot = x * jnp.cos(theta) + y * jnp.sin(theta) # (H, W)
-            y_rot = -x * jnp.sin(theta) + y * jnp.cos(theta) # (H, W)
-
-            # Ellipse distance calculation
-            term = jnp.sqrt((x_rot / a)**2 + (y_rot / b)**2) 
-            scale = 2 * a * b / (a + b)
-            dist = scale * (1.0 - term)
-
-            # Phase field representation using tanh
-            u = jnp.tanh(dist / (jnp.sqrt(2) * epsilon)) # shape (H, W)
-            return u[None, ...]  # shape (1, H, W)
-        
         x, y = self.coords[0, :, :], self.coords[1, :, :]  # (H, W)
         a, b, theta = params[:, 0], params[:, 1], params[:, 2]  # each shape (B,)
-        u = jax.vmap(eval_one_sample, in_axes=(0, 0, 0, None, None, None))(
+        u = jax.vmap(self.eval_one_sample, in_axes=(0, 0, 0, None, None, None))(
             a, b, theta, x, y, epsilon) # shape (B, 1, H, W)
         return u
 
@@ -164,29 +170,28 @@ class DataFactory:
         self.func_sampler = func_sampler
         self.coord_sampler = coord_sampler
 
-    def get_batch(self, key: jax.Array, num_u: int, epsilon: float):
+    def get_batch(self, key: jax.Array, epsilon: float):
         key_u, key_coords = jax.random.split(key)
         
-        # 1. 采样输入函数的参数并生成场 (B, 1, H, W)
-        params = self.func_sampler.sample_params(num_u, key_u)
-        u0_grid = self.func_sampler.evaluate(epsilon, params)
+        params = self.func_sampler.sample_params(key_u) # shape (num_u, 3)
+        u0_grid = self.func_sampler.evaluate(epsilon, params) # shape (num_u, 1, H, W)
         
-        # 2. 采样 PDE 残差计算点 (N_pde, 3) 和 IC 检查点 (N_ic, 3)
         pde_points, ic_points = self.coord_sampler.resample(key_coords)
         
-        return {
-            "u0": u0_grid,           # 输入场
-            "params": params,       # 椭圆参数 (a, b, theta)
-            "pde_points": pde_points, # (N_pde, 3) -> [x, y, t]
-            "ic_points": ic_points    # (N_ic, 3)  -> [x, y, 0]
-        }
+        # return {
+        #     "u0": u0_grid,           # input function field (num_u, 1, H, W)
+        #     "params": params,       # ellipse parameters (num_u, 3)
+        #     "pde_points": pde_points, # (N_pde, 3) -> [x, y, t]
+        #     "ic_points": ic_points    # (N_ic, 3)  -> [x, y, 0]
+        # }
+        return u0_grid, params, pde_points, ic_points
 
 if __name__ == "__main__":
     # sample and plot
     import matplotlib.pyplot as plt
-    fs = FunctionSampler(grid_size=(64,64))
+    fs = FunctionSampler(grid_size=(64,64), num_u_samples=8)
     key = jax.random.PRNGKey(0)
-    params = fs.sample_params(8, key)
+    params = fs.sample_params(key)
     u = fs.evaluate(1.0, params)
     print(u.shape)
     fig, axes = plt.subplots(2, 4, figsize=(12,6))
@@ -196,7 +201,7 @@ if __name__ == "__main__":
         # im = ax.contourf(fs.coords[0], fs.coords[1], u[i, 0], levels=50, cmap='RdBu')
         ax.pcolormesh(fs.coords[0], fs.coords[1], u[i, 0], shading='auto', cmap='coolwarm', rasterized=True)
         ax.set_title(f'a={params[i,0]:.1f}, b={params[i,1]:.1f}, θ={params[i,2]/jnp.pi*180:.2f}')
-    plt.savefig('sample_function_sampler.png')
+    plt.savefig('tmp/sample_function_sampler.png')
     plt.close()
     
     cs = CoordSampler()
@@ -212,10 +217,10 @@ if __name__ == "__main__":
     ax.set_ylabel('Y')
     ax.set_zlabel('T')
     ax.legend()
-    plt.savefig('sample_coord_sampler.png')
+    plt.savefig('tmp/sample_coord_sampler.png')
 
-    factory = DataFactory(fs, cs)
-    batch = factory.get_batch(key, num_u=16, epsilon=1.0)
+    # factory = DataFactory(fs, cs)
+    # batch = factory.get_batch(key, epsilon=1.0)
     
-    print(f"Input u0 shape: {batch['u0'].shape}")           # (16, 1, 224, 224)
-    print(f"PDE points shape: {batch['pde_points'].shape}") # (1024, 3)
+    # print(f"Input u0 shape: {batch['u0'].shape}")           # (16, 1, 224, 224)
+    # print(f"PDE points shape: {batch['pde_points'].shape}") # (1024, 3)

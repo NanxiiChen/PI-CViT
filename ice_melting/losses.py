@@ -1,13 +1,13 @@
-from functools import partial
-from typing import Any, Callable, Tuple, Union, Optional
+from typing import Callable, Tuple, Union
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 from jax.flatten_util import ravel_pytree
-import equinox as eqx
+
+from models.cvit import CViT
 
 from .configs.train_debug import Config
-from models.cvit import CViT
 
 
 class Losses(eqx.Module):
@@ -40,15 +40,8 @@ class Losses(eqx.Module):
             A vector of shape (N_query,) representing the PDE residuals at the given points.
         """
         
-        # sol = model(u, x, t) # (N, 1)
-        # phi = sol[:, 0] # (N,)
-        # phi_fn = lambda x, t: model(u, x, t)[:, 0] # function that maps (x, t) to phi
-        # dphi_dt = jnp.grad(jnp.sum(phi_fn(x, t)), argnums=1)
-        # dphi_dt = jax.grad(phi_fn, argnums=1)(x, t)[0] # scalar
-        # hess_phi = jax.hessian(phi_fn, argnums=0)(x, t) # (D, D)
-        # assert hess_phi.shape == (x.shape[0], x.shape[0]), f"Hessian shape incorrect: {hess_phi.shape}"
-        # laplacian_phi = jnp.trace(hess_phi) # scalar
-        
+        Lc = cfg.Lc  # Characteristic length scale
+        Tc = cfg.Tc  # Characteristic time scale
         
         enc_out = model.encoder(u) # (N_patch, emb_dim)
         
@@ -59,7 +52,7 @@ class Losses(eqx.Module):
             return sol[0, 0] # scalar
         
         dphi_dt = jax.vmap(jax.grad(phi_single, argnums=1), in_axes=(0, 0))(x, t)  # (N_query, 1)
-        dphi_dt = dphi_dt[:, 0]  # (N_query,)
+        dphi_dt = dphi_dt[:, 0] / Tc  # (N_query,)
         # assert dphi_dt.shape == (x.shape[0],), f"dphi_dt shape incorrect: {dphi_dt.shape}"
         
         def laplacian_fn(xi, ti):
@@ -67,7 +60,7 @@ class Losses(eqx.Module):
             hess = jax.hessian(phi_single, argnums=0)(xi, ti) # (D, D)
             # assert hess.shape == (x.shape[1], x.shape[1]), f"Hessian shape incorrect: {hess.shape}"
             return jnp.trace(hess) # scalar
-        laplacian_phi = jax.vmap(laplacian_fn, in_axes=(0, 0))(x, t)  # (N_query,)
+        laplacian_phi = jax.vmap(laplacian_fn, in_axes=(0, 0))(x, t) / Lc**2  # (N_query,)
         
         phi = model.decoder(enc_out, x, t)[:, 0]  # (N_query,)
         
@@ -121,9 +114,11 @@ class Losses(eqx.Module):
     def residual_ic(self,
                     model: Union[eqx.Module, CViT],
                     u: jnp.ndarray,
+                    param: jnp.ndarray,
                     x: jnp.ndarray,
                     t: jnp.ndarray,
                     ic_fn: Callable[[jnp.ndarray], jnp.ndarray],
+                    cfg: Config,
                     **kwargs
                     ) -> jnp.ndarray:
         
@@ -133,9 +128,12 @@ class Losses(eqx.Module):
         Args:
             model: The neural operator model (CViT).
             u: The parametrized input function of shape (C, H, W).
-            x: Spatial coordinate array of shape (N_query, D).
+            param: Parameters for input function u, which determine the IC. shape (3,)
+            x: Spatial coordinate array of shape (N_query, 2).
             t: Time coordinate array of shape (N_query, 1).
             ic_fn: Function mapping spatial coordinates to initial condition values.
+                   Args are (a, b, theta, x1, x2, epsilon)
+            cfg: Configuration object containing physical parameters.
     
         Returns:
             A vector of shape (N_query,) representing the IC residuals.
@@ -143,7 +141,12 @@ class Losses(eqx.Module):
         
         sol = model(u, x, t) # (N_query, out_dim)
         phi_pred = sol[:, 0] # (N_query,)
-        phi_ref = jax.vmap(ic_fn)(x)  # (N_query,)
+        # phi_ref = jax.vmap(ic_fn, in_axes=(None, None, None, 0, 0, None))(
+        #     param[0], param[1], param[2], x[:, 0], x[:, 1], cfg.epsilon
+        # )
+        phi_ref = ic_fn(
+            param[0], param[1], param[2], x[:, 0], x[:, 1], cfg.epsilon
+        ) # (N_query,)
         ic_residual = phi_pred - phi_ref
         assert ic_residual.shape == (x.shape[0],), f"IC residual shape incorrect: {ic_residual.shape}"
         return ic_residual
@@ -151,9 +154,11 @@ class Losses(eqx.Module):
     def loss_ic(self,
                 model: eqx.Module,
                 u: jnp.ndarray,
+                params: jnp.ndarray,
                 x: jnp.ndarray,
                 t: jnp.ndarray,
                 ic_fn: Callable[[jnp.ndarray], jnp.ndarray],
+                cfg: Config,
                 **kwargs
                 ) -> jnp.ndarray:
         """Computes the mean squared initial condition residual loss over a batch of samples.
@@ -161,9 +166,11 @@ class Losses(eqx.Module):
         Args:
             model: The neural operator model (CViT).
             u: Input function batch of shape (B, C, H, W).
+            params: params for input function u, which determine the ICs. shape (B, 3)
             x: Shared spatial coordinate array of shape (N_query, D).
             t: Shared time coordinate array of shape (N_query, 1).
             ic_fn: Function mapping spatial coordinates to initial condition values.
+            cfg: Configuration object containing physical parameters.
             
         Returns:
             A tuple of (scalar MSE loss, auxiliary information dictionary).
@@ -171,14 +178,15 @@ class Losses(eqx.Module):
 
         residuals = jax.vmap(
             self.residual_ic, 
-            in_axes=(None, 0, None, None, None)
-        )(model, u, x, t, ic_fn) # (B, N_query)
+            in_axes=(None, 0, 0, None, None, None, None)
+        )(model, u, params, x, t, ic_fn, cfg) # (B, N_query)
         return jnp.mean(jnp.square(residuals)), {}
     
     
     def loss_fn(self, 
                 model: eqx.Module,
                 u: jnp.ndarray,
+                params: jnp.ndarray,
                 x: jnp.ndarray,
                 t: jnp.ndarray,
                 cfg: Config,
@@ -190,6 +198,7 @@ class Losses(eqx.Module):
         Args:
             model: The neural operator model (CViT) to differentiate.
             u: Input function batch of shape (B, C, H, W).
+            params: params for input function u, which determine the ICs. shape (B, 3).
             x: Shared spatial coordinate array of shape (N_query, D).
             t: Shared time coordinate array of shape (N_query, 1).
             cfg: Configuration object containing physical parameters.
@@ -210,6 +219,7 @@ class Losses(eqx.Module):
             (loss, aux), grad = vg_fn(
                 model,
                 u=u,
+                params=params,
                 x=x,
                 t=t,
                 cfg=cfg,
@@ -247,30 +257,43 @@ class Losses(eqx.Module):
 
 
 if __name__ == "__main__":
-
     from jax import random as jr
+
+    from models import get_model
     key = jr.PRNGKey(0)
     
-    model = CViT(out_dim=1, key=key, grid_size=(112, 112), in_channels=1)
+    model = get_model("cvit", key, in_channels=1, out_dim=1, grid_size=(112, 112))
     losses = Losses()
 
-    k_img, k_x, k_t = jr.split(key, 3)
-    u = jr.normal(k_img, (16, 1, 112, 112))
+    k_u, k_p, k_x, k_t = jr.split(key, 4)
+    u = jr.normal(k_u, (16, 1, 112, 112)) # (B=16, C=1, H=112, W=112) 输入函数
+    params = jr.uniform(k_p, (16, 3), minval=0.1, maxval=0.5)  # (B=16, 3) 输入函数参数
 
-    x_coord = jr.uniform(k_x, (100, 2), minval=0.0, maxval=1.0)  # (N_query, 2) 空间坐标
-    t_coord = jr.uniform(k_t, (100, 1), minval=0.0, maxval=1.0)  # (N_query, 1) 时间坐标
+    x_coord = jr.uniform(k_x, (100, 2), minval=0.0, maxval=1.0)  # (N_query, 2)
+    t_coord = jr.uniform(k_t, (100, 1), minval=0.0, maxval=1.0)  # (N_query, 1)
     
     u = u.astype(jnp.float32)
     x_coord = x_coord.astype(jnp.float32)
     t_coord = t_coord.astype(jnp.float32)
     
     cfg = Config()
-    def ic_fn(x):
-        return jnp.sin(jnp.pi * x[0]) * jnp.sin(jnp.pi * x[1])
+    
+    def ic_fn(a, b, theta, x, y, epsilon):
+        # a, b, theta: scalars
+        x_rot = x * jnp.cos(theta) + y * jnp.sin(theta)
+        y_rot = -x * jnp.sin(theta) + y * jnp.cos(theta)
+
+        term = jnp.sqrt((x_rot / a)**2 + (y_rot / b)**2) 
+        scale = 2 * a * b / (a + b)
+        dist = scale * (1.0 - term)
+
+        u = jnp.tanh(dist / (jnp.sqrt(2) * epsilon)) # shape (H, W) or scalar
+        return u
     
     (total_loss, (losses, weights, aux_vars)), total_grad = losses.loss_fn(
         model,
         u,
+        params,
         x_coord,
         t_coord,
         cfg,

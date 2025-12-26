@@ -1,11 +1,12 @@
 import jax
+
 jax.config.update("jax_default_matmul_precision", "float32") 
-import jax.numpy as jnp
-import jax.random as jr
+from typing import Callable, List, Optional, Tuple
+
 import equinox as eqx
 import equinox.nn as nn
-
-from typing import Optional, Callable, Tuple, List
+import jax.numpy as jnp
+import jax.random as jr
 
 
 # Positional embedding from masked autoencoder https://arxiv.org/abs/2111.06377
