@@ -26,27 +26,50 @@ class Losses(eqx.Module):
                     **kwargs
                     ) -> jnp.ndarray:
         """
-        Computes the PDE residual for a single spatio-temporal sample.
+        Computes the PDE residual for a single input function `u` over N_query points.
 
         Args:
             model: The neural operator model (CViT) that predicts the phase field.
             u: The parametrized input function of shape (C, H, W).
-            x: Spatial coordinate vector of shape (D,).
-            t: Time coordinate vector of shape (1,).
+            x: Spatial coordinate array of shape (N_query, D).
+            t: Time coordinate array of shape (N_query, 1).
             cfg: Configuration object containing physical parameters.
             **kwargs: Additional keyword arguments.
 
         Returns:
-            A scalar jax.numpy.ndarray representing the PDE residual at the given point.
+            A vector of shape (N_query,) representing the PDE residuals at the given points.
         """
         
-        sol = model(u, x, t) # (1,)
-        phi = sol[0] # scalar
-        phi_fn = lambda x, t: model(u, x, t)[0]
-        dphi_dt = jax.grad(phi_fn, argnums=1)(x, t)[0] # scalar
-        hess_phi = jax.hessian(phi_fn, argnums=0)(x, t) # (D, D)
-        assert hess_phi.shape == (x.shape[0], x.shape[0]), f"Hessian shape incorrect: {hess_phi.shape}"
-        laplacian_phi = jnp.trace(hess_phi) # scalar
+        # sol = model(u, x, t) # (N, 1)
+        # phi = sol[:, 0] # (N,)
+        # phi_fn = lambda x, t: model(u, x, t)[:, 0] # function that maps (x, t) to phi
+        # dphi_dt = jnp.grad(jnp.sum(phi_fn(x, t)), argnums=1)
+        # dphi_dt = jax.grad(phi_fn, argnums=1)(x, t)[0] # scalar
+        # hess_phi = jax.hessian(phi_fn, argnums=0)(x, t) # (D, D)
+        # assert hess_phi.shape == (x.shape[0], x.shape[0]), f"Hessian shape incorrect: {hess_phi.shape}"
+        # laplacian_phi = jnp.trace(hess_phi) # scalar
+        
+        
+        enc_out = model.encoder(u) # (N_patch, emb_dim)
+        
+        def phi_single(xi, ti):
+            # N_query = 1
+            # out_dim = 1
+            sol = model.decoder(enc_out, xi[None, :], ti[None, :]) # (1, 1)
+            return sol[0, 0] # scalar
+        
+        dphi_dt = jax.vmap(jax.grad(phi_single, argnums=1), in_axes=(0, 0))(x, t)  # (N_query, 1)
+        dphi_dt = dphi_dt[:, 0]  # (N_query,)
+        # assert dphi_dt.shape == (x.shape[0],), f"dphi_dt shape incorrect: {dphi_dt.shape}"
+        
+        def laplacian_fn(xi, ti):
+            # N_query = 1
+            hess = jax.hessian(phi_single, argnums=0)(xi, ti) # (D, D)
+            # assert hess.shape == (x.shape[1], x.shape[1]), f"Hessian shape incorrect: {hess.shape}"
+            return jnp.trace(hess) # scalar
+        laplacian_phi = jax.vmap(laplacian_fn, in_axes=(0, 0))(x, t)  # (N_query,)
+        
+        phi = model.decoder(enc_out, x, t)[:, 0]  # (N_query,)
         
         F_phi = (phi**2 - 1) **2 / 4.0
         dF_dphi = phi**3 - phi
@@ -60,7 +83,7 @@ class Losses(eqx.Module):
             - M_val * (laplacian_phi - dF_dphi / epsilon**2)
             +lbd * jnp.sqrt(2 * F_phi) / epsilon
         )
-        assert pde.shape == (), f"PDE residual shape incorrect: {pde.shape}"
+        assert pde.shape == (x.shape[0],), f"PDE residual shape incorrect: {pde.shape}"
         return pde
     
     def loss_pde(self, 
@@ -75,22 +98,24 @@ class Losses(eqx.Module):
         Computes the mean squared PDE residual loss over a batch of samples.
         
         Args:
-            model: The neural operator model (CViT) that predicts the phase field.
+            model: The neural operator model (CViT).
             u: Input function batch of shape (B, C, H, W).
-            x: Spatial coordinate array of shape (B, D).
-            t: Time coordinate array of shape (B, 1).
+            x: Shared spatial coordinate array of shape (N_query, D).
+            t: Shared time coordinate array of shape (N_query, 1).
             cfg: Configuration object containing physical parameters.
             **kwargs: Additional keyword arguments.
             
         Returns:
-            A tuple of (mean_squared_loss, aux_dict).
+            A tuple of (scalar MSE loss, auxiliary information dictionary).
         """
 
         residuals = jax.vmap(
             self.residual_pde, 
-            in_axes=(None, 0, 0, 0, None)
-        )(model, u, x, t, cfg)
-        return jnp.mean(jnp.square(residuals)), {} # empty dict for auxiliary info if needed later
+            in_axes=(None, 0, None, None, None)
+        )(model, u, x, t, cfg)  # (B, N_query)
+        # assert residuals.shape == (u.shape[0], x.shape[0]), f"Residuals shape incorrect: {residuals.shape}"
+        mse_loss = jnp.mean(jnp.square(residuals))
+        return mse_loss, {}
     
     
     def residual_ic(self,
@@ -103,24 +128,24 @@ class Losses(eqx.Module):
                     ) -> jnp.ndarray:
         
         """
-        Computes the initial condition residual for a single spatio-temporal sample.
+        Computes the initial condition residual for a single `u` over N_query points.
         
         Args:
-            model: The neural operator model (CViT) that predicts the phase field.
+            model: The neural operator model (CViT).
             u: The parametrized input function of shape (C, H, W).
-            x: Spatial coordinate vector of shape (D,).
-            t: Time coordinate vector of shape (1,).
-            ic_fn: A callable function that takes spatial coordinates and returns the initial condition value.
+            x: Spatial coordinate array of shape (N_query, D).
+            t: Time coordinate array of shape (N_query, 1).
+            ic_fn: Function mapping spatial coordinates to initial condition values.
     
         Returns:
-            A scalar jax.numpy.ndarray representing the initial condition residual at the given point.
+            A vector of shape (N_query,) representing the IC residuals.
         """
         
-        sol = model(u, x, t) # (1,)
-        phi_pred = sol[0] # scalar
-        ref = ic_fn(x) # scalar
-        ic_residual = phi_pred - ref
-        assert ic_residual.shape == (), f"IC residual shape incorrect: {ic_residual.shape}"
+        sol = model(u, x, t) # (N_query, out_dim)
+        phi_pred = sol[:, 0] # (N_query,)
+        phi_ref = jax.vmap(ic_fn)(x)  # (N_query,)
+        ic_residual = phi_pred - phi_ref
+        assert ic_residual.shape == (x.shape[0],), f"IC residual shape incorrect: {ic_residual.shape}"
         return ic_residual
     
     def loss_ic(self,
@@ -134,20 +159,20 @@ class Losses(eqx.Module):
         """Computes the mean squared initial condition residual loss over a batch of samples.
         
         Args:
-            model: The neural operator model (CViT) that predicts the phase field.
+            model: The neural operator model (CViT).
             u: Input function batch of shape (B, C, H, W).
-            x: Spatial coordinate array of shape (B, D).
-            t: Time coordinate array of shape (B, 1).
-            ic_fn: A callable function that takes spatial coordinates and returns the initial condition value.
+            x: Shared spatial coordinate array of shape (N_query, D).
+            t: Shared time coordinate array of shape (N_query, 1).
+            ic_fn: Function mapping spatial coordinates to initial condition values.
             
         Returns:
-            A scalar jax.numpy.ndarray representing the mean squared initial condition residual loss.
+            A tuple of (scalar MSE loss, auxiliary information dictionary).
         """
 
         residuals = jax.vmap(
             self.residual_ic, 
-            in_axes=(None, 0, 0, 0, None)
-        )(model, u, x, t, ic_fn)
+            in_axes=(None, 0, None, None, None)
+        )(model, u, x, t, ic_fn) # (B, N_query)
         return jnp.mean(jnp.square(residuals)), {}
     
     
@@ -165,15 +190,14 @@ class Losses(eqx.Module):
         Args:
             model: The neural operator model (CViT) to differentiate.
             u: Input function batch of shape (B, C, H, W).
-            x: Spatial coordinate array of shape (B, D).
-            t: Time coordinate array of shape (B, 1).
+            x: Shared spatial coordinate array of shape (N_query, D).
+            t: Shared time coordinate array of shape (N_query, 1).
             cfg: Configuration object containing physical parameters.
             ic_fn: A callable function for initial condition.
-            active_losses: A tuple of method names (strings) to include in the loss calculation.
+            active_losses: A tuple of method names to include in the loss calculation.
             
         Returns:
-            A tuple of ((total_loss, aux_data), total_gradient), where aux_data contains 
-            (individual_losses, weights, aux_vars).
+            A tuple of ((total_loss, aux_data), total_gradient).
         """
         
         losses = []
@@ -229,12 +253,12 @@ if __name__ == "__main__":
     
     model = CViT(out_dim=1, key=key, grid_size=(112, 112), in_channels=1)
     losses = Losses()
-    
+
     k_img, k_x, k_t = jr.split(key, 3)
     u = jr.normal(k_img, (16, 1, 112, 112))
 
-    x_coord = jr.uniform(k_x, (16, 2), minval=0.0, maxval=1.0)  # (B, 2) 空间坐标
-    t_coord = jr.uniform(k_t, (16, 1), minval=0.0, maxval=1.0)  # (B, 1) 时间坐标
+    x_coord = jr.uniform(k_x, (100, 2), minval=0.0, maxval=1.0)  # (N_query, 2) 空间坐标
+    t_coord = jr.uniform(k_t, (100, 1), minval=0.0, maxval=1.0)  # (N_query, 1) 时间坐标
     
     u = u.astype(jnp.float32)
     x_coord = x_coord.astype(jnp.float32)
@@ -255,6 +279,6 @@ if __name__ == "__main__":
     )
     
     print("Total loss:", total_loss)
-   
+
 
 

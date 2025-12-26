@@ -387,19 +387,12 @@ class Decoder(eqx.Module):
 
     def __call__(self, u, x, t):
         # u: (N_patch, enc_emb_dim)
-        # x: (spatial_dim,) or (N_query, spatial_dim)
-        # t: (1,) or (N_query, 1)
+        # x: (N_query, spatial_dim)
+        # t: (N_query, 1)
         
-        # 合并空间坐标 x 和时间坐标 t
-        coords = jnp.concatenate([x, t], axis=-1)
-        
-        # 统一处理为序列形式
-        squeeze_output = False
-        if coords.ndim == 1:
-            coords = coords[None, :]  # (1, coord_dim)
-            squeeze_output = True
-        
-        queries = self.fourier_embs(coords)  # (1, dec_emb_dim)
+        # Combine spatial and temporal coords
+        coords = jnp.concatenate([x, t], axis=-1) # (N_query, spatial_dim + 1)
+        queries = self.fourier_embs(coords)  # (N_query, dec_emb_dim)
         
         # Project encoder output
         keys_values = jax.vmap(self.proj_x)(u)  # (N_patch, dec_emb_dim)
@@ -409,11 +402,7 @@ class Decoder(eqx.Module):
             queries = block(queries, keys_values)
             
         queries = jax.vmap(self.norm)(queries)
-        # Mlp 需要 vmap
-        output = jax.vmap(self.mlp)(queries)  # (1, out_dim)
-        
-        if squeeze_output:
-            output = output.squeeze(0)  # (out_dim,)
+        output = jax.vmap(self.mlp)(queries)  # (N_query, out_dim)
         
         return output
 
@@ -470,13 +459,13 @@ class CViT(eqx.Module):
 
     def __call__(self, u, x, t):
         # u: (C, H, W)
-        # x: (spatial_dim,) or (N_query, spatial_dim)
-        # t: (1,) or (N_query, 1)
+        # x: (N_query, spatial_dim)
+        # t: (N_query, 1)
         
-        enc_out = self.encoder(u)
-        dec_out = self.decoder(enc_out, x, t)
+        enc_out = self.encoder(u) # (N_patch, emb_dim)
+        dec_out = self.decoder(enc_out, x, t) # (N_query, out_dim)
             
-        return dec_out
+        return dec_out # (N_query, out_dim)
 
 
 if __name__ == "__main__":
@@ -485,7 +474,7 @@ if __name__ == "__main__":
 
     # Dummy input
     k_img, k_x, k_t = jr.split(key, 3)
-    u = jr.normal(k_img, (16, 1, 224, 224)) # B, C, H, W
+    u = jr.normal(k_img, (16, 1, 224, 224)) # B, C=1, H, W
 
     x_coord = jr.uniform(k_x, (100, 2), minval=0.0, maxval=1.0)  # (N_query, 2) 空间坐标，每个batch都一样
     t_coord = jr.uniform(k_t, (100, 1), minval=0.0, maxval=1.0)  # (N_query, 1) 时间坐标
