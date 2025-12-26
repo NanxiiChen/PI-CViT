@@ -20,7 +20,14 @@ from .losses import Losses
 from .sample import CoordSampler, DataFactory, FunctionSampler
 
 
-def ic_fn(a, b, theta, x, y, epsilon):
+def ic_fn(a, b, theta, x, y, epsilon, Lc=None):
+    # a, b, x, y, are expected to be the physical coordinates
+    
+    if Lc is not None:
+        # indicate that x, y are normalized coordinates
+        x = x * Lc
+        y = y * Lc
+
     # a, b, theta: scalars
     x_rot = x * jnp.cos(theta) + y * jnp.sin(theta)
     y_rot = -x * jnp.sin(theta) + y * jnp.cos(theta)
@@ -45,6 +52,7 @@ def train_step(
     ic_coords: jnp.ndarray,
     cfg: dict,
     ic_fn: callable,
+    active_losses: list = ["loss_pde", "loss_ic"],
     **kwargs
 ):
     # batch_u: (B, 1, H, W)
@@ -52,7 +60,7 @@ def train_step(
     # pde_coords: (N_query=num_pde_samples, 3)
     # ic_coords: (N_query=num_ic_samples, 3)
     (total_loss, (losses, weights, aux_vars)), total_grad = loss_fn(
-        model, batch_u, batch_params, pde_coords, ic_coords, cfg, ic_fn, **kwargs
+        model, batch_u, batch_params, pde_coords, ic_coords, cfg, ic_fn, active_losses, **kwargs
     )
     updates, new_state = optimizer.update(total_grad, state, model)
     new_model = eqx.apply_updates(model, updates)
@@ -96,9 +104,14 @@ def main():
         coord_sampler=coord_sampler,
     )
     
+
+    hard_cons_fn = partial(ic_fn, epsilon=configs.epsilon, Lc=configs.Lc)
     
     subkey, key = jax.random.split(key)
     model_params = configs.model_params
+    model_params.update(dict(
+        hard_cons_fn=hard_cons_fn if configs.use_hard_constraint else None,
+    ))
     model = get_model(
         model_name=configs.model_name,
         key=subkey,
@@ -107,7 +120,7 @@ def main():
     # print(model)
     losses = Losses()
     loss_fn = losses.loss_fn
-    active_loss_names = ["pde", "ic"]
+    active_loss_names = ["pde",] if configs.use_hard_constraint else ["pde", "ic"]
 
     scheduler = optax.exponential_decay(
         init_value=configs.initial_lr,
@@ -137,6 +150,7 @@ def main():
             ic_coords,
             configs,
             ic_fn,
+            active_losses=[f"loss_{name}" for name in active_loss_names],
         )
 
 

@@ -6,15 +6,17 @@ import jax.numpy as jnp
 class Config:
     model_name = "cvit"
     data_dir = "./data/ice_melting/ellipse"
-    save_dir = "/root/autodl-tmp/tf-logs/ice_melting/debug"
+    save_dir = "/root/autodl-tmp/tf-logs/ice_melting/circle"
     spatial_domain = ((-0.5, 0.5), (-0.5, 0.5))# x range, y range, normalized
     temporal_domain = (0.0, 3.0) # t range
-    a_range = (20, 40)
-    b_range = (20, 40)
-    theta_range = (0.0, jnp.pi)
+    a_range = (30, 30)
+    b_range = (30, 30)
+    theta_range = (0.0, 0)
     spatial_domain_phys = ((-50.0, 50.0), (-50.0, 50.0)) # physical spatial domain
     Lc = 100.0 # xc = x / Lc
     Tc = 1.0 # tc = t / Tc
+
+    use_hard_constraint = False
     
     
     # model hyperparameters
@@ -43,10 +45,10 @@ class Config:
     decay_every = 200
     decay_rate = 0.95
     batch_size = 64
-    save_every = 200
+    save_every = 500
     log_every = 50
 
-    num_u_samples = 16
+    num_u_samples = 1
     num_pde_samples = 1024
     num_ic_samples = 256
     

@@ -340,6 +340,7 @@ class Decoder(eqx.Module):
     blocks: List[CrossAttnBlock]
     norm: nn.LayerNorm
     mlp: Mlp
+    hard_cons_fn: Optional[Callable] = None
     
     def __init__(
         self,
@@ -354,6 +355,7 @@ class Decoder(eqx.Module):
         enc_emb_dim: int, # Dimension coming from encoder
         coord_dim: int = 3, # Dimension of coordinates + time
         layer_norm_eps: float = 1e-5,
+        hard_cons_fn: Optional[Callable] = None,
     ):
         k_four, k_proj, k_mlp, *k_blocks = jr.split(key, 3 + dec_depth)
         
@@ -386,8 +388,11 @@ class Decoder(eqx.Module):
             in_dim=dec_emb_dim
         )
 
-    def __call__(self, u, x, t):
+        self.hard_cons_fn = hard_cons_fn
+
+    def __call__(self, u, param, x, t):
         # u: (N_patch, enc_emb_dim)
+        # param: (3,) --> a, b, theta
         # x: (N_query, spatial_dim)
         # t: (N_query, 1)
         
@@ -404,7 +409,12 @@ class Decoder(eqx.Module):
             
         queries = jax.vmap(self.norm)(queries)
         output = jax.vmap(self.mlp)(queries)  # (N_query, out_dim)
-        
+
+        # apply hard constraint if provided
+        if self.hard_cons_fn is not None:
+            out0 = self.hard_cons_fn(*param, x[:, 0:1], x[:, 1:2],) # (N_query, out_dim)
+            output = output * t + out0  # (N_query, out_dim)
+
         return output
 
 
@@ -429,6 +439,7 @@ class CViT(eqx.Module):
         num_mlp_layers: int = 1,
         out_dim: int = 2,
         layer_norm_eps: float = 1e-5,
+        hard_cons_fn: Optional[Callable] = None,
     ):
         k_enc, k_dec = jr.split(key)
         
@@ -455,19 +466,24 @@ class CViT(eqx.Module):
             num_mlp_layers=num_mlp_layers,
             enc_emb_dim=emb_dim,
             coord_dim=3, # (x, y, t)
-            layer_norm_eps=layer_norm_eps
+            layer_norm_eps=layer_norm_eps,
+            hard_cons_fn=hard_cons_fn
         )
 
-    def __call__(self, u, x, t):
+
+    def __call__(self, u, param, x, t):
         # u: (C, H, W)
+        # param: (3,) --> a, b, theta
         # x: (N_query, spatial_dim)
         # t: (N_query, 1)
         
         enc_out = self.encoder(u) # (N_patch, emb_dim)
-        dec_out = self.decoder(enc_out, x, t) # (N_query, out_dim)
-            
+        dec_out = self.decoder(enc_out, param, x, t) # (N_query, out_dim)
+
         return dec_out # (N_query, out_dim)
 
+
+# TODO: Apply hard constraint to initial conditions, varying with input function `u0`
 
 if __name__ == "__main__":
     key = jr.PRNGKey(0)

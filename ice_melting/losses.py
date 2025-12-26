@@ -50,7 +50,7 @@ class Losses(eqx.Module):
         def phi_single(xi, ti):
             # N_query = 1
             # out_dim = 1
-            sol = model.decoder(enc_out, xi[None, :], ti[None, :]) # (1, 1)
+            sol = model.decoder(enc_out, param, xi[None, :], ti[None, :]) # (1, 1)
             return sol[0, 0] # scalar
         
         def compute_pde_terms(xi, ti):
@@ -72,7 +72,7 @@ class Losses(eqx.Module):
         
         phi, dphi_dt, laplacian_phi = jax.vmap(
             compute_pde_terms, in_axes=(0, 0)
-        )(x, t)  # (N_query,), (N_query,), (N_query
+        )(x, t)  # (N_query,), (N_query,), (N_query,)
     
 
         dphi_dt = dphi_dt / Tc
@@ -155,13 +155,14 @@ class Losses(eqx.Module):
             A vector of shape (N_query,) representing the IC residuals.
         """
         
-        sol = model(u, x, t) # (N_query, out_dim)
+        sol = model(u, param, x, t) # (N_query, out_dim)
         phi_pred = sol[:, 0] # (N_query,)
         
-        x_phys = x * cfg.Lc
         
         phi_ref = ic_fn(
-            param[0], param[1], param[2], x_phys[:, 0], x_phys[:, 1], cfg.epsilon
+            param[0], param[1], param[2], 
+            x[:, 0], x[:, 1], cfg.epsilon, 
+            Lc=cfg.Lc # pass Lc, so that ic_fn can automatically map to physical coords
         ) # (N_query,)
         ic_residual = phi_pred - phi_ref
         assert ic_residual.shape == (x.shape[0],), f"IC residual shape incorrect: {ic_residual.shape}"
@@ -254,7 +255,7 @@ class Losses(eqx.Module):
             aux_vars.update(aux)
             
         weights = self.grad_norm_weights(grads)
-        weights = weights.at[-1].set(2*weights[-1])  # Emphasize IC loss
+        # weights = weights.at[-1].set(2*weights[-1])  # Emphasize IC loss
         total_loss = jnp.sum(jnp.array(losses) * weights)
         
         total_grad = jax.tree.map(
