@@ -310,6 +310,7 @@ class Mlp(eqx.Module):
         hidden_dim: int,
         out_dim: int,
         in_dim: int,
+        act: str = "gelu"
     ):
         keys = jr.split(key, num_layers + 1)
         self.layers = []
@@ -322,7 +323,7 @@ class Mlp(eqx.Module):
             
         # Output layer
         self.layers.append(nn.Linear(curr_dim, out_dim, key=keys[-1]))
-        self.act = jax.nn.gelu
+        self.act = getattr(jax.nn, act)
 
     def __call__(self, inputs):
         # inputs: (..., in_dim)
@@ -335,7 +336,8 @@ class Mlp(eqx.Module):
 
 
 class Decoder(eqx.Module):
-    fourier_embs: FourierEmbs
+    fourier_embs_x: FourierEmbs
+    fourier_embs_t: FourierEmbs
     proj_x: nn.Linear
     blocks: List[CrossAttnBlock]
     norm: nn.LayerNorm
@@ -349,6 +351,7 @@ class Decoder(eqx.Module):
         dec_depth: int,
         dec_num_heads: int,
         dec_emb_dim: int,
+        dec_mlp_act: str,
         mlp_ratio: int,
         out_dim: int,
         num_mlp_layers: int,
@@ -359,12 +362,20 @@ class Decoder(eqx.Module):
     ):
         k_four, k_proj, k_mlp, *k_blocks = jr.split(key, 3 + dec_depth)
         
-        self.fourier_embs = FourierEmbs(
-            key=k_four,
+        k_four_x, k_four_t = jr.split(k_four)
+        self.fourier_embs_x = FourierEmbs(
+            key=k_four_x,
             embed_scale=fourier_freq,
-            embed_dim=dec_emb_dim,
-            input_dim=coord_dim
+            embed_dim=dec_emb_dim//2,
+            input_dim=coord_dim-1
         )
+        self.fourier_embs_t = FourierEmbs(
+            key=k_four,
+            embed_scale=fourier_freq/10,
+            embed_dim=dec_emb_dim//2,
+            input_dim=1
+        )
+
         
         self.proj_x = nn.Linear(enc_emb_dim, dec_emb_dim, key=k_proj)
         
@@ -385,7 +396,8 @@ class Decoder(eqx.Module):
             num_layers=num_mlp_layers,
             hidden_dim=dec_emb_dim,
             out_dim=out_dim,
-            in_dim=dec_emb_dim
+            in_dim=dec_emb_dim,
+            act=dec_mlp_act
         )
 
         self.hard_cons_fn = hard_cons_fn
@@ -397,8 +409,11 @@ class Decoder(eqx.Module):
         # t: (N_query, 1)
         
         # Combine spatial and temporal coords
-        coords = jnp.concatenate([x, t], axis=-1) # (N_query, spatial_dim + 1)
-        queries = self.fourier_embs(coords)  # (N_query, dec_emb_dim)
+        # coords = jnp.concatenate([x, t], axis=-1) # (N_query, spatial_dim + 1)
+        # queries = self.fourier_embs(coords)  # (N_query, dec_emb_dim)
+        x_emb = self.fourier_embs_x(x)  # (N_query, dec_emb_dim//2)
+        t_emb = self.fourier_embs_t(t)  # (N_query, dec_emb_dim//2)
+        queries = jnp.concatenate([x_emb, t_emb], axis=-1)  # (N_query, dec_emb_dim)
         
         # Project encoder output
         keys_values = jax.vmap(self.proj_x)(u)  # (N_patch, dec_emb_dim)
@@ -436,6 +451,7 @@ class CViT(eqx.Module):
         dec_depth: int = 2,
         dec_num_heads: int = 8,
         dec_emb_dim: int = 256,
+        dec_mlp_act: str = "gelu",
         num_mlp_layers: int = 1,
         out_dim: int = 2,
         layer_norm_eps: float = 1e-5,
@@ -461,6 +477,7 @@ class CViT(eqx.Module):
             dec_depth=dec_depth,
             dec_num_heads=dec_num_heads,
             dec_emb_dim=dec_emb_dim,
+            dec_mlp_act=dec_mlp_act,
             mlp_ratio=mlp_ratio,
             out_dim=out_dim,
             num_mlp_layers=num_mlp_layers,
