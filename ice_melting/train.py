@@ -9,11 +9,14 @@ import jax.numpy as jnp
 import optax
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use("Agg")
 
 from tensorboardX import SummaryWriter
 
 # from .configs import Configs
 from models import get_model
+from models.causal import CausalWeightor
 
 from .configs import load_configs
 from .losses import Losses
@@ -97,6 +100,8 @@ def main():
         temporal_domain=configs.temporal_domain,
         num_ic_samples=configs.num_ic_samples,
         num_pde_samples=configs.num_pde_samples,
+        num_rar_samples=configs.num_rar_samples,
+        num_rar_pools=configs.num_rar_pools,
     )
     
     data_factory = DataFactory(
@@ -117,8 +122,14 @@ def main():
         key=subkey,
         **model_params,
     )
+    causal_weightor = CausalWeightor(
+        num_chunks=configs.causality_params["num_chunks"],
+        t_range=configs.temporal_domain,
+    )
+
     # print(model)
-    losses = Losses()
+    losses = Losses(causal_weightor=causal_weightor)
+    causal_eps = jnp.array(configs.causality_params["initial_eps"]) # make it jax array, so that it can be traced in jit
     loss_fn = losses.loss_fn
     active_loss_names = ["pde",] if configs.use_hard_constraint else ["pde", "ic", "irr"]
 
@@ -138,7 +149,7 @@ def main():
         subkey, key = jax.random.split(key)
         if epoch % configs.resample_every == 0:
             batch_u, batch_params, pde_coords, ic_coords =\
-                data_factory.get_batch(subkey, epsilon=configs.epsilon)
+                data_factory.get_batch(subkey, model, losses.residual_pde, configs)
         
         model, opt_state, total_loss, loss_values, weights, aux_vars = train_step(
             model,
@@ -152,7 +163,35 @@ def main():
             configs,
             ic_fn,
             active_losses=[f"loss_{name}" for name in active_loss_names],
+            causal_eps=causal_eps,
         )
+
+        if configs.use_causality:
+            loss_chunks = aux_vars.get("loss_chunks", None)
+            causal_weights = aux_vars.get("causal_weights", None)
+            new_eps = causal_weightor.update_causal_eps(
+                causal_weights,
+                eps=causal_eps,
+                max_eps=configs.causality_params["max_eps"],
+                min_mean_weight=configs.causality_params["min_mean_weight"],
+                max_min_weight=configs.causality_params["max_min_weight"],
+                step_size=configs.causality_params["step_size"],
+            )
+            if abs(new_eps - causal_eps) > 1e-6:
+                print(f"Update epsilon: {causal_eps:.4e} --> {new_eps:.4e}")
+            # configs.causality_params.update(dict(eps=new_eps))
+            causal_eps = new_eps
+            
+
+            if epoch % configs.test_every == 0:
+                fig = causal_weightor.plot_causal_info(
+                    loss_chunks,
+                    causal_weights,
+                    causal_eps,
+                )
+                writer.add_figure("causal_weights", fig, epoch)
+                plt.close(fig)
+
 
 
 

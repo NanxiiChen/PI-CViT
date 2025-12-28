@@ -6,15 +6,19 @@ import jax.numpy as jnp
 from jax.flatten_util import ravel_pytree
 
 from models.cvit import CViT
-
+from models.causal import CausalWeightor
 from .configs.train_debug import Config
+
 
 # TODO: add causality loss
 class Losses(eqx.Module):
+    causal_weightor: CausalWeightor = None
     
-    def __init__(self, *args, **kwargs):
+    def __init__(self, causal_weightor: CausalWeightor = None,
+                 *args, **kwargs):
         super().__init__()
         # No parameters to initialize for now
+        self.causal_weightor = causal_weightor
     
     @eqx.filter_jit
     def residual_pde(self, 
@@ -95,8 +99,8 @@ class Losses(eqx.Module):
     
     def loss_pde(self, 
                  model: eqx.Module,
-                 params: jnp.ndarray,
                  u: jnp.ndarray,
+                 params: jnp.ndarray,
                  x: jnp.ndarray,
                  t: jnp.ndarray,
                  cfg: Config,
@@ -123,8 +127,19 @@ class Losses(eqx.Module):
             in_axes=(None, 0, 0,  None, None, None)
         )(model, u, params,  x, t, cfg)  # (B, N_query)
         # assert residuals.shape == (u.shape[0], x.shape[0]), f"Residuals shape incorrect: {residuals.shape}"
-        mse_loss = jnp.mean(jnp.square(residuals))
-        return mse_loss, {}
+        if not cfg.use_causality:
+            mse_loss = jnp.mean(jnp.square(residuals))
+            return mse_loss, {}
+        else:
+            residuals_mean, loss_chunks, causal_weights =\
+                self.causal_weightor.compute_causal_loss(
+                    residuals, t, kwargs.get("causal_eps") 
+                )
+            return residuals_mean, {
+                "loss_chunks": loss_chunks,
+                "causal_weights": causal_weights
+            }
+            
     
     
     def residual_ic(self,
@@ -263,6 +278,7 @@ class Losses(eqx.Module):
                 cfg: Config,
                 ic_fn: Callable[[jnp.ndarray], jnp.ndarray],
                 active_losses: Tuple[str, ...] = ("loss_pde", "loss_ic", "loss_irr"),
+                **kwargs,
                 ) -> Tuple[Tuple[jnp.ndarray, Tuple[list, jnp.ndarray, dict]], eqx.Module]:
         """Computes the total loss and its gradient using a weighted sum of components.
         
@@ -302,7 +318,8 @@ class Losses(eqx.Module):
                 x=x,
                 t=t,
                 cfg=cfg,
-                ic_fn=ic_fn
+                ic_fn=ic_fn,
+                **kwargs
             )
             # covnert nan or inf grads to zero
             grad = jax.tree.map(lambda g: jnp.nan_to_num(g), grad)
