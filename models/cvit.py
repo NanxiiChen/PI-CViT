@@ -370,7 +370,7 @@ class Decoder(eqx.Module):
             input_dim=coord_dim-1
         )
         self.fourier_embs_t = FourierEmbs(
-            key=k_four,
+            key=k_four_t,
             embed_scale=fourier_freq/10,
             embed_dim=dec_emb_dim//2,
             input_dim=1

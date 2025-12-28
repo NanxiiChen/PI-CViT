@@ -47,6 +47,7 @@ class Config:
     batch_size = 64
     save_every = 1000
     log_every = 50
+    resample_every = 10
 
     num_u_samples = 1
     num_pde_samples = 2048

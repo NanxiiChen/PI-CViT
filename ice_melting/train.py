@@ -52,7 +52,7 @@ def train_step(
     ic_coords: jnp.ndarray,
     cfg: dict,
     ic_fn: callable,
-    active_losses: list = ["loss_pde", "loss_ic"],
+    active_losses: list = ["loss_pde", "loss_ic", "loss_irr"],
     **kwargs
 ):
     # batch_u: (B, 1, H, W)
@@ -120,7 +120,7 @@ def main():
     # print(model)
     losses = Losses()
     loss_fn = losses.loss_fn
-    active_loss_names = ["pde",] if configs.use_hard_constraint else ["pde", "ic"]
+    active_loss_names = ["pde",] if configs.use_hard_constraint else ["pde", "ic", "irr"]
 
     scheduler = optax.exponential_decay(
         init_value=configs.initial_lr,
@@ -136,8 +136,9 @@ def main():
     epochs = configs.num_epochs
     for epoch in range(epochs):
         subkey, key = jax.random.split(key)
-        batch_u, batch_params, pde_coords, ic_coords =\
-              data_factory.get_batch(subkey, epsilon=configs.epsilon)
+        if epoch % configs.resample_every == 0:
+            batch_u, batch_params, pde_coords, ic_coords =\
+                data_factory.get_batch(subkey, epsilon=configs.epsilon)
         
         model, opt_state, total_loss, loss_values, weights, aux_vars = train_step(
             model,

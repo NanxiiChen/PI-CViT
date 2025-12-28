@@ -9,7 +9,7 @@ from models.cvit import CViT
 
 from .configs.train_debug import Config
 
-
+# TODO: add causality loss
 class Losses(eqx.Module):
     
     def __init__(self, *args, **kwargs):
@@ -199,6 +199,60 @@ class Losses(eqx.Module):
         )(model, u, params, x, t, ic_fn, cfg) # (B, N_query)
         return jnp.mean(jnp.square(residuals)), {}
     
+
+
+    def residual_irr(self,
+                     model: Union[eqx.Module, CViT],
+                     u: jnp.ndarray,
+                     param: jnp.ndarray,
+                     x: jnp.ndarray,
+                     t: jnp.ndarray,
+                     cfg: Config,
+                     **kwargs
+                     ) -> jnp.ndarray:
+        
+        Lc = cfg.Lc  # Characteristic length scale
+        Tc = cfg.Tc  # Characteristic time scale
+        
+        enc_out = model.encoder(u) # (N_patch, emb_dim)
+
+        def phi_single(xi, ti):
+            # N_query = 1
+            # out_dim = 1
+            sol = model.decoder(enc_out, param, xi[None, :], ti[None, :]) # (1, 1)
+            return sol[0, 0] # scalar
+
+        dphi_dt = jax.vmap(
+            jax.grad(phi_single, argnums=1), in_axes=(0, 0)
+        )(x, t)  # (N_query,1)
+        dphi_dt = dphi_dt[:, 0]  # (N_query,)
+
+        assert dphi_dt.shape == (x.shape[0],), f"dphi_dt shape incorrect: {dphi_dt.shape}"
+        dphi_dt = dphi_dt / Tc
+
+        # enforcing dphi/dt < 0
+        residual = jax.nn.relu(dphi_dt)
+        return residual
+
+    
+    def loss_irr(self,
+                 model: eqx.Module,
+                 u: jnp.ndarray,
+                 params: jnp.ndarray,
+                 x: jnp.ndarray,
+                 t: jnp.ndarray,
+                 cfg: Config,
+                 **kwargs
+                 ) -> Tuple[jnp.ndarray, dict]:
+        
+        residuals = jax.vmap(
+            self.residual_irr, 
+            in_axes=(None, 0, 0, None, None, None)
+        )(model, u, params, x, t, cfg) # (B, N_query)
+        return jnp.mean(jnp.square(residuals)), {}
+    
+
+        
     
     def loss_fn(self, 
                 model: eqx.Module,
@@ -208,7 +262,7 @@ class Losses(eqx.Module):
                 ic_coords: jnp.ndarray,
                 cfg: Config,
                 ic_fn: Callable[[jnp.ndarray], jnp.ndarray],
-                active_losses: Tuple[str, ...] = ("loss_pde", "loss_ic"),
+                active_losses: Tuple[str, ...] = ("loss_pde", "loss_ic", "loss_irr"),
                 ) -> Tuple[Tuple[jnp.ndarray, Tuple[list, jnp.ndarray, dict]], eqx.Module]:
         """Computes the total loss and its gradient using a weighted sum of components.
         
@@ -235,6 +289,8 @@ class Losses(eqx.Module):
                 x, t = pde_coords[:, :-1], pde_coords[:, -1:]
             elif name == "loss_ic":
                 x, t = ic_coords[:, :-1], ic_coords[:, -1:]
+            elif name == "loss_irr":
+                x, t = pde_coords[:, :-1], pde_coords[:, -1:]
             else:
                 raise ValueError(f"Unknown loss component: {name}")
             l_fn = getattr(self, name)
