@@ -337,7 +337,8 @@ class Mlp(eqx.Module):
 
 class Decoder(eqx.Module):
     fourier_embs_x: FourierEmbs
-    fourier_embs_t: FourierEmbs
+    # fourier_embs_t: FourierEmbs
+    time_mlp: Mlp
     proj_x: nn.Linear
     blocks: List[CrossAttnBlock]
     norm: nn.LayerNorm
@@ -366,17 +367,24 @@ class Decoder(eqx.Module):
         self.fourier_embs_x = FourierEmbs(
             key=k_four_x,
             embed_scale=fourier_freq,
-            embed_dim=dec_emb_dim//2,
+            embed_dim=dec_emb_dim,
             input_dim=coord_dim-1
         )
-        self.fourier_embs_t = FourierEmbs(
+        # self.fourier_embs_t = FourierEmbs(
+        #     key=k_four_t,
+        #     embed_scale=fourier_freq/10,
+        #     embed_dim=dec_emb_dim,
+        #     input_dim=1
+        # )
+        self.time_mlp = Mlp(
             key=k_four_t,
-            embed_scale=fourier_freq/10,
-            embed_dim=dec_emb_dim//2,
-            input_dim=1
+            num_layers=2,
+            hidden_dim=dec_emb_dim,
+            out_dim=dec_emb_dim*2,
+            in_dim=1,
+            act="gelu"
         )
 
-        
         self.proj_x = nn.Linear(enc_emb_dim, dec_emb_dim, key=k_proj)
         
         self.blocks = [
@@ -408,13 +416,13 @@ class Decoder(eqx.Module):
         # x: (N_query, spatial_dim)
         # t: (N_query, 1)
         
-        # Combine spatial and temporal coords
-        # coords = jnp.concatenate([x, t], axis=-1) # (N_query, spatial_dim + 1)
-        # queries = self.fourier_embs(coords)  # (N_query, dec_emb_dim)
-        x_emb = self.fourier_embs_x(x)  # (N_query, dec_emb_dim//2)
-        t_emb = self.fourier_embs_t(t)  # (N_query, dec_emb_dim//2)
-        queries = jnp.concatenate([x_emb, t_emb], axis=-1)  # (N_query, dec_emb_dim)
-        
+        # Combine spatial and temporal coords, 
+        x_emb = self.fourier_embs_x(x)  # (N_query, dec_emb_dim)
+        t_emb = jax.vmap(self.time_mlp)(t)  # (N_query, dec_emb_dim*2)
+        scale, shift = jnp.split(t_emb, 2, axis=-1)  # (N_query, dec_emb_dim), (N_query, dec_emb_dim)
+        queries = x_emb * (1 + scale) + shift  # (N_query, dec_emb_dim)
+
+
         # Project encoder output
         keys_values = jax.vmap(self.proj_x)(u)  # (N_patch, dec_emb_dim)
         
