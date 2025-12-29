@@ -62,9 +62,9 @@ class Config:
     resample_every = 5
 
     num_u_samples = 16
-    num_pde_samples = 2048
-    num_rar_samples = 0
-    num_rar_pools = 0
+    num_pde_samples = 1024
+    num_rar_samples = 1024
+    num_rar_pools = 10240
     num_ic_samples = 256
 
     lbd = 5.0
