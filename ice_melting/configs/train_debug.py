@@ -11,8 +11,8 @@ class Config:
     target_ts = jnp.array([0.0, 1.0, 2.0, 3.0])
     spatial_domain = ((-0.5, 0.5), (-0.5, 0.5))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
-    a_range = (25, 35)
-    b_range = (25, 35)
+    a_range = (20, 40)
+    b_range = (20, 40)
     theta_range = (0.0, jnp.pi)
     spatial_domain_phys = ((-50.0, 50.0), (-50.0, 50.0))  # physical spatial domain
     Lc = 100.0  # xc = x / Lc
@@ -59,7 +59,7 @@ class Config:
     save_every = 500
     log_every = 50
     test_every = 500
-    resample_every = 5
+    resample_every = 1
 
     num_u_samples = 16
     num_pde_samples = 1024
