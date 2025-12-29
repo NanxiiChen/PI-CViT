@@ -127,9 +127,11 @@ def main():
         t_range=configs.temporal_domain,
     )
 
-    # print(model)
     losses = Losses(causal_weightor=causal_weightor)
-    causal_eps = jnp.array(configs.causality_params["initial_eps"]) # make it jax array, so that it can be traced in jit
+    # !!! make `causal_eps` jax array, 
+    # !!! so that it can be traced in jit
+    # !!! otherwise, it will cause jit compilation every time when `causal_eps` is updated
+    causal_eps = jnp.array(configs.causality_params["initial_eps"])
     loss_fn = losses.loss_fn
     active_loss_names = ["pde",] if configs.use_hard_constraint else ["pde", "ic", "irr"]
 
@@ -140,7 +142,11 @@ def main():
         staircase=False,
         end_value=1e-5,
     )
-    optimizer = optax.adam(scheduler)
+    # optimizer = optax.adam(scheduler)
+    optimizer = optax.chain(
+        optax.clip_by_global_norm(configs.max_grad_norm),
+        optax.adam(scheduler),
+    )
     opt_state = optimizer.init(eqx.filter(model, eqx.is_array))
 
 

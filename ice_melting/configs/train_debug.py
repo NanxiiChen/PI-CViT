@@ -40,6 +40,7 @@ class Config:
 
     use_hard_constraint = False
     use_causality = True
+    max_grad_norm = 1.0
 
     causality_params = dict(
         num_chunks=24,
