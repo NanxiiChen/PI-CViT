@@ -6,8 +6,9 @@ import jax.numpy as jnp
 @dataclass(frozen=True)
 class Config:
     model_name = "cvit"
-    data_dir = "./data/ice_melting/ellipse"
+    data_dir = "./data/ice_melting/circle"
     save_dir = "/root/autodl-tmp/tf-logs/ice_melting/circle"
+    target_ts = jnp.array([0.0, 1.0, 2.0, 3.0])
     spatial_domain = ((-0.5, 0.5), (-0.5, 0.5))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
     a_range = (30, 30)
@@ -16,8 +17,6 @@ class Config:
     spatial_domain_phys = ((-50.0, 50.0), (-50.0, 50.0))  # physical spatial domain
     Lc = 100.0  # xc = x / Lc
     Tc = 3.0  # tc = t / Tc
-
-    use_hard_constraint = False
 
     # model hyperparameters
     model_params = dict(
@@ -34,9 +33,21 @@ class Config:
         dec_num_heads=8,
         dec_emb_dim=256,  # two times of ffe hidden dim (sin, cos)
         dec_mlp_act="tanh",
-        num_mlp_layers=4,
+        num_mlp_layers=3,
         out_dim=1,  # phi,
         layer_norm_eps=1e-5,
+    )
+
+    use_hard_constraint = False
+    use_causality = False
+
+    causality_params = dict(
+        num_chunks=24,
+        initial_eps=1e-2,
+        max_eps=1000,
+        step_size=10.0,
+        min_mean_weight=0.4,
+        max_min_weight=0.99,
     )
 
     # training hyperparameters
@@ -45,12 +56,15 @@ class Config:
     decay_every = 100
     decay_rate = 0.95
     batch_size = 64
-    save_every = 1000
+    save_every = 500
     log_every = 50
-    resample_every = 10
+    test_every = 500
+    resample_every = 5
 
     num_u_samples = 1
-    num_pde_samples = 2048
+    num_pde_samples = (12, 12, 36)
+    num_rar_samples = 0
+    num_rar_pools = 0
     num_ic_samples = 256
 
     lbd = 5.0

@@ -22,7 +22,34 @@ def lhs_sampling(mins, maxs, num, key):
         result = result.at[:, i].set(mins[i] + perm * (maxs[i] - mins[i]))
 
     return result
-        
+
+     
+def shifted_grid(mins, maxs, nums, key, eps=1e-3):
+    dim = len(mins)
+    mins = jnp.array(mins)
+    maxs = jnp.array(maxs)
+    nums = jnp.array(nums)
+
+    grids = []
+    distances = (maxs - mins) / (nums - 1)
+
+    keys = random.split(key, dim)
+    shifts = jnp.array(
+        [
+            random.uniform(keys[i], shape=(), minval=-distances[i], maxval=distances[i])
+            for i in range(dim)
+        ]
+    )
+
+    # create shifted grids
+    for i in range(dim):
+        grid_i = jnp.linspace(mins[i], maxs[i], nums[i]) + shifts[i]
+        grid_i = jnp.clip(grid_i, mins[i] + eps, maxs[i] - eps)
+        grids.append(grid_i)
+
+    data = jnp.stack(mesh_flat(*grids), axis=-1).reshape(-1, dim)
+    data = data[random.permutation(key, data.shape[0])]
+    return data   
 
 if __name__ == "__main__":
     key = random.PRNGKey(0)

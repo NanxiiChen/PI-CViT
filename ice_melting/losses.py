@@ -374,7 +374,9 @@ if __name__ == "__main__":
     u = u.astype(jnp.float32)
     x_coord = x_coord.astype(jnp.float32)
     t_coord = t_coord.astype(jnp.float32)
-    
+    pde_coords = jnp.concatenate([x_coord, t_coord], axis=-1)  # (100, 3)
+    ic_coords = jnp.concatenate([x_coord, jnp.zeros_like(t_coord)], axis=-1)  # IC在t=0
+
     cfg = Config()
     
     def ic_fn(a, b, theta, x, y, epsilon):
@@ -393,8 +395,8 @@ if __name__ == "__main__":
         model,
         u,
         params,
-        x_coord,
-        t_coord,
+        pde_coords,
+        ic_coords,
         cfg,
         ic_fn,
         active_losses=("loss_pde", "loss_ic")

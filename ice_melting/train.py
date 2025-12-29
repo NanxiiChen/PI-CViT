@@ -21,7 +21,7 @@ from models.causal import CausalWeightor
 from .configs import load_configs
 from .losses import Losses
 from .sample import CoordSampler, DataFactory, FunctionSampler
-
+from .evaluator import evaluate_model
 
 def ic_fn(a, b, theta, x, y, epsilon, Lc=None):
     # a, b, x, y, are expected to be the physical coordinates
@@ -150,6 +150,19 @@ def main():
         if epoch % configs.resample_every == 0:
             batch_u, batch_params, pde_coords, ic_coords =\
                 data_factory.get_batch(subkey, model, losses.residual_pde, configs)
+            
+
+        if epoch % configs.test_every == 0:
+            fig, l2 = evaluate_model(
+                model,
+                configs.target_ts,
+                configs.data_dir,
+                configs.Lc,
+                configs.Tc
+            )
+            writer.add_figure("eval/u_pred_vs_ref", fig, epoch)
+            writer.add_scalar("eval/l2_error", l2, epoch)
+            plt.close(fig)
         
         model, opt_state, total_loss, loss_values, weights, aux_vars = train_step(
             model,

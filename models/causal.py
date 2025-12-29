@@ -47,7 +47,7 @@ class CausalWeightor:
     def plot_causal_info(
         self, loss_chunks: jnp.ndarray, causal_weights: jnp.ndarray, eps: float
     ):
-        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+        fig, axes = plt.subplots(1, 2, figsize=(5, 2.5))
 
         ax = axes[0]
         ax.plot(jnp.arange(self.num_chunks), loss_chunks, marker="o")
