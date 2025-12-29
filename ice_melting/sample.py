@@ -50,10 +50,10 @@ class CoordSampler:
 
         mins = jnp.array([x_min, y_min, t_min])
         maxs = jnp.array([x_max, y_max, t_max])
-        # pde_points = lhs_sampling(mins, maxs, self.num_pde_samples, key)
-        pde_points = shifted_grid(
-            mins, maxs, self.num_pde_samples, key
-        )  # shape (num_pde_samples, 3)
+        pde_points = lhs_sampling(mins, maxs, self.num_pde_samples, key)
+        # pde_points = shifted_grid(
+        #     mins, maxs, self.num_pde_samples, key
+        # )  # shape (num_pde_samples, 3)
 
         return pde_points
 

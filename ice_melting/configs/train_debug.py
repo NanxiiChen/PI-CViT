@@ -6,14 +6,14 @@ import jax.numpy as jnp
 @dataclass(frozen=True)
 class Config:
     model_name = "cvit"
-    data_dir = "./data/ice_melting/circle"
-    save_dir = "/root/autodl-tmp/tf-logs/ice_melting/circle"
+    data_dir = "./data/ice_melting/ellipse"
+    save_dir = "/root/autodl-tmp/tf-logs/ice_melting/ellipse"
     target_ts = jnp.array([0.0, 1.0, 2.0, 3.0])
     spatial_domain = ((-0.5, 0.5), (-0.5, 0.5))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
-    a_range = (30, 30)
-    b_range = (30, 30)
-    theta_range = (0.0, 0.0)
+    a_range = (25, 35)
+    b_range = (25, 35)
+    theta_range = (0.0, jnp.pi)
     spatial_domain_phys = ((-50.0, 50.0), (-50.0, 50.0))  # physical spatial domain
     Lc = 100.0  # xc = x / Lc
     Tc = 3.0  # tc = t / Tc
@@ -39,7 +39,7 @@ class Config:
     )
 
     use_hard_constraint = False
-    use_causality = False
+    use_causality = True
 
     causality_params = dict(
         num_chunks=24,
@@ -61,8 +61,8 @@ class Config:
     test_every = 500
     resample_every = 5
 
-    num_u_samples = 1
-    num_pde_samples = (12, 12, 36)
+    num_u_samples = 16
+    num_pde_samples = 2048
     num_rar_samples = 0
     num_rar_pools = 0
     num_ic_samples = 256

@@ -15,11 +15,15 @@ M = 0.1
 # R0 = 35 # 不再使用固定半径
 
 # 批量运行设置
-B = 10  # 工况数 (Batch size)
+B = 4  # 工况数 (Batch size)
 seed = 0
 total_time = 3.0
 save_every = 0.1
 init_dt = 0.005
+
+a_range = (25, 35)
+b_range = (25, 35)
+theta_range = (0, np.pi)
 
 # 预先计算时间步信息
 expected_steps = int(total_time / save_every) + 1
@@ -27,7 +31,8 @@ times = np.linspace(0, total_time, expected_steps)
 print(f"Times shape: {times.shape}")
 
 # 创建结果目录
-os.makedirs("./results", exist_ok=True)
+save_dir = "./data/ice_melting/ellipse"
+os.makedirs(save_dir, exist_ok=True)
 
 # 创建网格和函数空间
 # 更改为二维矩形网格
@@ -48,7 +53,7 @@ W = N + 1
 print(f"Mesh shape: {mesh_points.shape}, Grid shape: ({H}, {W})")
 # 保存排序后的网格点
 # 调整为 (2, H, W) 格式，其中第0维是x，第1维是y
-np.save("./results/mesh_points.npy", mesh_points[sort_idx].reshape(H, W, 2).transpose(2, 0, 1))
+np.save(f"{save_dir}/mesh_points.npy", mesh_points[sort_idx].reshape(H, W, 2).transpose(2, 0, 1))
 
 phi = fn.Function(V)
 phi_n = fn.Function(V)
@@ -118,11 +123,11 @@ for b in range(B):
     print(f"=== Starting Batch {b+1}/{B} ===")
     
     # 随机生成参数   
-    a_val = np.random.uniform(20, 40)
-    b_val = np.random.uniform(20, 40)
+    a_val = np.random.uniform(*a_range)
+    b_val = np.random.uniform(*b_range)
     if a_val < b_val:
         a_val, b_val = b_val, a_val  # 确保 a 是长轴
-    theta_val = np.random.uniform(0, np.pi)
+    theta_val = np.random.uniform(*theta_range)
     # for a standard circle
     # a_val = 30
     # b_val = 30
@@ -195,9 +200,9 @@ final_params = np.array(all_params)
 print(f"Final Solutions shape: {final_solutions.shape}")
 print(f"Final Params shape: {final_params.shape}")
 
-np.save("./results/solutions.npy", final_solutions)
-np.save("./results/initial_params.npy", final_params)
-np.save("./results/times.npy", times)
+np.save(f"{save_dir}/solutions.npy", final_solutions)
+np.save(f"{save_dir}/initial_params.npy", final_params)
+np.save(f"{save_dir}/times.npy", times)
 
 print('Simulation finished')
 

@@ -147,7 +147,9 @@ def evaluate_model(
         jnp.sum(ref_sols ** 2, axis=(1, 3, 4))
     )
     total_l2 = jnp.mean(total_l2)
-
+    fig.subplots_adjust(
+        left=0.03, right=0.97, top=0.95, bottom=0.03, hspace=0.1, wspace=0.1
+    )
     return fig, total_l2
         
 
