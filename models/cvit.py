@@ -1,8 +1,6 @@
-import jax
 
-jax.config.update("jax_default_matmul_precision", "float32") 
 from typing import Callable, List, Optional, Tuple
-
+import jax
 import equinox as eqx
 import equinox.nn as nn
 import jax.numpy as jnp
