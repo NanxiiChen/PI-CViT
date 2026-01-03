@@ -10,7 +10,6 @@ from models.causal import CausalWeightor
 from .configs.train_debug import Config
 
 
-# TODO: add causality loss
 class Losses(eqx.Module):
     causal_weightor: CausalWeightor = None
     

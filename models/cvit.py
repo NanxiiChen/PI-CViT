@@ -494,8 +494,6 @@ class CViT(eqx.Module):
         return dec_out # (N_query, out_dim)
 
 
-# TODO: Apply hard constraint to initial conditions, varying with input function `u0`
-
 if __name__ == "__main__":
     key = jr.PRNGKey(0)
     model = CViT(key, in_channels=1, out_dim=2, grid_size=(224, 224))
