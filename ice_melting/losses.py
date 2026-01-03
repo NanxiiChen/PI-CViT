@@ -54,7 +54,7 @@ class Losses(eqx.Module):
         def phi_single(xi, ti):
             # N_query = 1
             # out_dim = 1
-            sol = model.decoder(enc_out, param, xi[None, :], ti[None, :]) # (1, 1)
+            sol = model.decoder(enc_out, xi[None, :], ti[None, :]) # (1, 1)
             return sol[0, 0] # scalar
         
         def compute_pde_terms(xi, ti):
@@ -170,7 +170,7 @@ class Losses(eqx.Module):
             A vector of shape (N_query,) representing the IC residuals.
         """
         
-        sol = model(u, param, x, t) # (N_query, out_dim)
+        sol = model(u, x, t) # (N_query, out_dim)
         phi_pred = sol[:, 0] # (N_query,)
         
         
@@ -234,7 +234,7 @@ class Losses(eqx.Module):
         def phi_single(xi, ti):
             # N_query = 1
             # out_dim = 1
-            sol = model.decoder(enc_out, param, xi[None, :], ti[None, :]) # (1, 1)
+            sol = model.decoder(enc_out, xi[None, :], ti[None, :]) # (1, 1)
             return sol[0, 0] # scalar
 
         dphi_dt = jax.vmap(

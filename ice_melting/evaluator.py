@@ -71,8 +71,8 @@ def evaluate_model(
             (x_coord.shape[0], 1), t
         ) / Tc  # (H*W, 1)
         sol = jax.vmap(
-            model, in_axes=(0, 0, None, None)
-        )(us, params, x_coord, t_coord)  # (B, H*W, C=1)
+            model, in_axes=(0, None, None)
+        )(us, x_coord, t_coord)  # (B, H*W, C=1)
         return carry, sol
     
     _, sols = jax.lax.scan(

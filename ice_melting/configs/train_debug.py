@@ -38,7 +38,6 @@ class Config:
         layer_norm_eps=1e-5,
     )
 
-    use_hard_constraint = False
     use_causality = True
     max_grad_norm = 1.0
 

@@ -109,14 +109,9 @@ def main():
         coord_sampler=coord_sampler,
     )
     
-
-    hard_cons_fn = partial(ic_fn, epsilon=configs.epsilon, Lc=configs.Lc)
     
     subkey, key = jax.random.split(key)
     model_params = configs.model_params
-    model_params.update(dict(
-        hard_cons_fn=hard_cons_fn if configs.use_hard_constraint else None,
-    ))
     model = get_model(
         model_name=configs.model_name,
         key=subkey,
@@ -133,7 +128,7 @@ def main():
     # !!! otherwise, it will cause jit compilation every time when `causal_eps` is updated
     causal_eps = jnp.array(configs.causality_params["initial_eps"])
     loss_fn = losses.loss_fn
-    active_loss_names = ["pde",] if configs.use_hard_constraint else ["pde", "ic", "irr"]
+    active_loss_names = ["pde", "ic", "irr"]
 
     scheduler = optax.exponential_decay(
         init_value=configs.initial_lr,
