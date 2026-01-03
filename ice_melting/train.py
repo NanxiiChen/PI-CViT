@@ -1,6 +1,5 @@
 import argparse
 import os
-from functools import partial
 import time
 
 import equinox as eqx
@@ -55,8 +54,10 @@ def train_step(
     ic_coords: jnp.ndarray,
     cfg: dict,
     ic_fn: callable,
-    active_losses: list = ["loss_pde", "loss_ic", "loss_irr"],
-    **kwargs
+    active_losses: tuple = ("loss_pde", "loss_ic", "loss_irr"),
+    **kwargs 
+    # kwargs includes causal_eps, 
+    # it has beed converted to jax array outside to be traced in jit
 ):
     # batch_u: (B, 1, H, W)
     # batch_params: (B, 3)
@@ -128,7 +129,8 @@ def main():
     # !!! otherwise, it will cause jit compilation every time when `causal_eps` is updated
     causal_eps = jnp.array(configs.causality_params["initial_eps"])
     loss_fn = losses.loss_fn
-    active_loss_names = ["pde", "ic", "irr"]
+    active_loss_names = ("pde", "ic", "irr")
+    active_losses = tuple(f"loss_{name}" for name in active_loss_names)
 
     scheduler = optax.exponential_decay(
         init_value=configs.initial_lr,
@@ -154,12 +156,14 @@ def main():
             
 
         if epoch % configs.test_every == 0:
+            eval_key, key = jax.random.split(key)
             fig, l2 = evaluate_model(
                 model,
                 configs.target_ts,
                 configs.data_dir,
                 configs.Lc,
-                configs.Tc
+                configs.Tc,
+                eval_key,
             )
             writer.add_figure("eval/u_pred_vs_ref", fig, epoch)
             writer.add_scalar("eval/l2_error", l2, epoch)
@@ -176,7 +180,7 @@ def main():
             ic_coords,
             configs,
             ic_fn,
-            active_losses=[f"loss_{name}" for name in active_loss_names],
+            active_losses=active_losses,
             causal_eps=causal_eps,
         )
 
@@ -205,9 +209,6 @@ def main():
                 )
                 writer.add_figure("causal_weights", fig, epoch)
                 plt.close(fig)
-
-
-
 
         if epoch % configs.log_every == 0:
             print(

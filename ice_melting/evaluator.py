@@ -1,6 +1,7 @@
 import os
 from typing import List
 
+from einops import rearrange
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
@@ -46,6 +47,7 @@ def evaluate_model(
     data_dir: str,
     Lc: float,
     Tc: float,
+    key: jax.random.PRNGKey,
     **kwargs
 ):
     params = jnp.load(f"{data_dir}/initial_params.npy")
@@ -81,11 +83,14 @@ def evaluate_model(
         jnp.array(target_ts),
     )  # sols: (T, B, H*W, C=1)
     # T, B, H*W, C=1 --> B, T, C, H, W
-    sols = sols.transpose(1, 0, 3, 2).reshape(B, len(target_ts), C, H, W)
+    # sols = sols.transpose(1, 0, 3, 2).reshape(B, len(target_ts), C, H, W)
+    sols = rearrange(sols, "t b (h w) c -> b t c h w", h=int(H), w=int(W)) # avoid traced H and W
     fig, axes = plt.subplots(3, len(target_ts), figsize=(1.5 * len(target_ts), 5), subplot_kw={
         "aspect": "equal",
     })
-    batch_th = 0  # only evaluate the first sample in the batch
+    # batch_th = 0  # only evaluate the first sample in the batch
+    # randomly select a batch index to evaluate
+    batch_th = jax.random.randint(key, (), 0, B)
     channel_th = 0  # only evaluate the first channel
     for i, tic in enumerate(target_ts):
         # plot reference
