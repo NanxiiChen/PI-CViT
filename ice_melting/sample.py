@@ -256,14 +256,14 @@ if __name__ == "__main__":
     # sample and plot
     import matplotlib.pyplot as plt
 
-    fs = FunctionSampler(grid_size=(64, 64), num_u_samples=8)
+    fs = FunctionSampler(grid_size=(64, 64), num_u_samples=9)
     key = jax.random.PRNGKey(0)
     params = fs.sample_params(key)
     u = fs.evaluate(1.0, params)
     print(u.shape)
-    fig, axes = plt.subplots(2, 4, figsize=(12, 6))
+    fig, axes = plt.subplots(3, 3, figsize=(8, 8))
     axes = axes.flatten()
-    for i in range(8):
+    for i in range(9):
         ax = axes[i]
         # im = ax.contourf(fs.coords[0], fs.coords[1], u[i, 0], levels=50, cmap='RdBu')
         ax.pcolormesh(
@@ -274,40 +274,44 @@ if __name__ == "__main__":
             cmap="coolwarm",
             rasterized=True,
         )
-        ax.set_title(
-            f"a={params[i,0]:.1f}, b={params[i,1]:.1f}, θ={params[i,2]/jnp.pi*180:.2f}"
-        )
-    plt.savefig("tmp/sample_function_sampler.png")
+        ax.set_aspect("equal")
+        ax.set_axis_off()
+        ax.text(0.5, 1.01, f"a={params[i,0]:.1f}, b={params[i,1]:.1f}, θ={params[i,2]/jnp.pi*180:.2f}°",
+                ha="center", va="bottom", transform=ax.transAxes)
+        # ax.set_title(
+        #     f"a={params[i,0]:.1f}, b={params[i,1]:.1f}, θ={params[i,2]/jnp.pi*180:.2f}"
+        # )
+    plt.savefig("tmp/sample_function_sampler.png", dpi=300, bbox_inches="tight", pad_inches=0.1)
     plt.close()
 
-    cs = CoordSampler()
-    key = jax.random.PRNGKey(1)
-    pde_samples, ic_samples = cs.resample(key)
-    print("PDE samples shape:", pde_samples.shape)
-    print("IC samples shape:", ic_samples.shape)
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-    ax.scatter(
-        pde_samples[:, 0],
-        pde_samples[:, 1],
-        pde_samples[:, 2],
-        c="b",
-        label="PDE Samples",
-        s=1,
-    )
-    ax.scatter(
-        ic_samples[:, 0],
-        ic_samples[:, 1],
-        ic_samples[:, 2],
-        c="r",
-        label="IC Samples",
-        s=10,
-    )
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("T")
-    ax.legend()
-    plt.savefig("tmp/sample_coord_sampler.png")
+    # cs = CoordSampler()
+    # key = jax.random.PRNGKey(1)
+    # pde_samples, ic_samples = cs.resample(key)
+    # print("PDE samples shape:", pde_samples.shape)
+    # print("IC samples shape:", ic_samples.shape)
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111, projection="3d")
+    # ax.scatter(
+    #     pde_samples[:, 0],
+    #     pde_samples[:, 1],
+    #     pde_samples[:, 2],
+    #     c="b",
+    #     label="PDE Samples",
+    #     s=1,
+    # )
+    # ax.scatter(
+    #     ic_samples[:, 0],
+    #     ic_samples[:, 1],
+    #     ic_samples[:, 2],
+    #     c="r",
+    #     label="IC Samples",
+    #     s=10,
+    # )
+    # ax.set_xlabel("X")
+    # ax.set_ylabel("Y")
+    # ax.set_zlabel("T")
+    # ax.legend()
+    # plt.savefig("tmp/sample_coord_sampler.png")
 
     # factory = DataFactory(fs, cs)
     # batch = factory.get_batch(key, epsilon=1.0)
