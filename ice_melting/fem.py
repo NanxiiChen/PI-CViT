@@ -15,14 +15,14 @@ M = 0.1
 # R0 = 35 # 不再使用固定半径
 
 # 批量运行设置
-B = 4  # 工况数 (Batch size)
+B = 8  # 工况数 (Batch size)
 seed = 0
 total_time = 3.0
 save_every = 0.1
-init_dt = 0.005
+init_dt = 0.001
 
-a_range = (25, 35)
-b_range = (25, 35)
+a_range = (20, 40)
+b_range = (20, 40)
 theta_range = (0, np.pi)
 
 # 预先计算时间步信息
