@@ -5,9 +5,9 @@ import jax.numpy as jnp
 
 @dataclass(frozen=True)
 class Config:
-    model_name = "cvit"
+    model_name = "deeponet"
     data_dir = "./data/ice_melting/ellipse"
-    save_dir = "/root/autodl-tmp/tf-logs/ice_melting/ellipse"
+    save_dir = "/root/autodl-tmp/tf-logs/ice_melting/ellipse/deeponet"
     target_ts = jnp.array([0.0, 1.0, 2.0, 3.0])
     spatial_domain = ((-0.5, 0.5), (-0.5, 0.5))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
@@ -20,22 +20,26 @@ class Config:
 
     # model hyperparameters
     model_params = dict(
-        ## model:encoder
-        patch_size=(8, 8),
+        # Encoder (Branch) args
+        in_channels=1,
         grid_size=(64, 64),
-        in_channels=1,  # phi
-        emb_dim=256,  # emb_dim for encoder
-        depth=2,
-        num_heads=8,
-        ## model:decoder
-        fourier_freq=2.0,
-        dec_depth=2,
-        dec_num_heads=8,
-        dec_emb_dim=256,  # two times of ffe hidden dim (sin, cos)
-        dec_mlp_act="tanh",
-        num_mlp_layers=3,
-        out_dim=1,  # phi,
-        layer_norm_eps=1e-5,
+        branch_conv_channels=64,
+        branch_conv_kernel=3,
+        branch_conv_stride=1,
+        branch_mlp_layers=3,
+        branch_mlp_hidden=256,
+
+        # Decoder (Trunk) args
+        trunk_mlp_layers=4,
+        trunk_mlp_hidden=256,
+        trunk_fourier_freq=2.0,
+        trunk_emb_dim=256,
+
+        # Common args
+        basis_dim=256,
+        out_dim=1,
+        coord_dim=3,              # x, y, t
+        act="tanh",
     )
 
     use_causality = True

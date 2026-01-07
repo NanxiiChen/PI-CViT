@@ -7,7 +7,7 @@ import jax.numpy as jnp
 class Config:
     model_name = "cvit"
     data_dir = "./data/ice_melting/ellipse"
-    save_dir = "/root/autodl-tmp/tf-logs/ice_melting/ellipse"
+    save_dir = "/root/autodl-tmp/tf-logs/ice_melting/ellipse/cvit"
     target_ts = jnp.array([0.0, 1.0, 2.0, 3.0])
     spatial_domain = ((-0.5, 0.5), (-0.5, 0.5))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range

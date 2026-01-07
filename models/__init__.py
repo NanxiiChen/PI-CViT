@@ -13,3 +13,12 @@ def get_model(model_name, key, in_channels, out_dim, **kwargs):
             out_dim=out_dim,
             **kwargs
         )
+    
+    elif model_name.lower() == "deeponet":
+        from .deeponet import DeepONet
+        return DeepONet(
+            key,
+            in_channels=in_channels,
+            out_dim=out_dim,
+            **kwargs
+        )
