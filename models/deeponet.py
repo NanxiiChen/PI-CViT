@@ -57,67 +57,74 @@ class FourierEmbs(eqx.Module):
     
 class Encoder(eqx.Module):
     """
-    Corresponds to the Branch Net in DeepONet.
-    Encodes the input function u(x) (on a grid) into coefficients for the basis functions.
+    Original DeepONet Branch Net: Direct MLP on flattened grid.
     """
-    conv: nn.Conv2d
+    conv: nn.Conv2d | None
     mlp: Mlp
     out_dim: int
     basis_dim: int
-    flatten_dim: int
+    use_cnn: bool
 
     def __init__(
         self,
         key: jr.PRNGKey,
         in_channels: int,
         grid_size: Tuple[int, int],
-        conv_out_channels: int,
-        conv_kernel_size: int,
-        conv_stride: int,
-        mlp_layers: int,
-        mlp_hidden_dim: int,
-        basis_dim: int,
-        out_dim: int,
-        act: str = "gelu"
+        # CNN args (kept for compatibility, but may not be used)
+        conv_out_channels: int = 32,
+        conv_kernel_size: int = 3,
+        conv_stride: int = 1,
+        mlp_layers: int = 4,
+        mlp_hidden_dim: int = 256,
+        basis_dim: int = 256,
+        out_dim: int = 1,
+        act: str = "tanh",
+        use_cnn: bool = False,  # whether to use CNN before MLP
     ):
-        k_conv, k_mlp = jr.split(key)
-        
-        # First layer: Convolution to extract features from grid u
-        self.conv = nn.Conv2d(
-            in_channels=in_channels,
-            out_channels=conv_out_channels,
-            kernel_size=conv_kernel_size,
-            stride=conv_stride,
-            key=k_conv
-        )
-        
-        # Calculate flattened dimension after convolution
-        h, w = grid_size
-        h_out = (h - conv_kernel_size) // conv_stride + 1
-        w_out = (w - conv_kernel_size) // conv_stride + 1
-        self.flatten_dim = conv_out_channels * h_out * w_out
-        
         self.basis_dim = basis_dim
         self.out_dim = out_dim
+        self.use_cnn = use_cnn
         
-        # MLP to project features to basis coefficients
+        if use_cnn:
+            # 原来的CNN实现
+            k_conv, k_mlp = jr.split(key)
+            self.conv = nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=conv_out_channels,
+                kernel_size=conv_kernel_size,
+                stride=conv_stride,
+                padding=conv_kernel_size // 2,  # 保持尺寸
+                key=k_conv
+            )
+            h, w = grid_size
+            flatten_dim = conv_out_channels * h * w
+        else:
+            # 直接展平网格
+            self.conv = None
+            h, w = grid_size
+            flatten_dim = in_channels * h * w
+            k_mlp = key
+        
+        # MLP
         self.mlp = Mlp(
             key=k_mlp,
             num_layers=mlp_layers,
             hidden_dim=mlp_hidden_dim,
             out_dim=basis_dim * out_dim,
-            in_dim=self.flatten_dim,
+            in_dim=flatten_dim,
             act=act
         )
 
     def __call__(self, u):
         # u: (C, H, W)
-        x = self.conv(u) # (C_out, H', W')
-        x = x.flatten() # (C_out * H' * W')
+        if self.use_cnn:
+            x = self.conv(u)  # (C_out, H, W)
+            x = jax.nn.gelu(x)  # 添加激活
+            x = x.flatten()
+        else:
+            x = u.flatten()  # 直接展平
         
-        coeffs = self.mlp(x) # (basis_dim * out_dim)
-        
-        # Reshape to (out_dim, basis_dim) to handle multiple outputs (e.g. u, v)
+        coeffs = self.mlp(x)  # (basis_dim * out_dim)
         coeffs = coeffs.reshape(self.out_dim, self.basis_dim)
         return coeffs
 
@@ -208,6 +215,7 @@ class DeepONet(eqx.Module):
         # Encoder (Branch) args
         in_channels: int = 3,
         grid_size: Tuple[int, int] = (224, 224),
+        branch_use_cnn: bool = False,
         branch_conv_channels: int = 32,
         branch_conv_kernel: int = 4,
         branch_conv_stride: int = 4,
@@ -230,6 +238,7 @@ class DeepONet(eqx.Module):
             key=k_enc,
             in_channels=in_channels,
             grid_size=grid_size,
+            use_cnn=branch_use_cnn,
             conv_out_channels=branch_conv_channels,
             conv_kernel_size=branch_conv_kernel,
             conv_stride=branch_conv_stride,

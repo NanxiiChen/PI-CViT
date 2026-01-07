@@ -23,14 +23,15 @@ class Config:
         # Encoder (Branch) args
         in_channels=1,
         grid_size=(64, 64),
+        branch_use_cnn = False,
         branch_conv_channels=64,
         branch_conv_kernel=3,
         branch_conv_stride=1,
-        branch_mlp_layers=3,
+        branch_mlp_layers=6,
         branch_mlp_hidden=256,
 
         # Decoder (Trunk) args
-        trunk_mlp_layers=4,
+        trunk_mlp_layers=6,
         trunk_mlp_hidden=256,
         trunk_fourier_freq=2.0,
         trunk_emb_dim=256,
@@ -59,7 +60,7 @@ class Config:
     initial_lr = 5e-4
     decay_every = 100
     decay_rate = 0.95
-    batch_size = 64
+    min_lr = 1e-5
     save_every = 500
     log_every = 50
     test_every = 500
@@ -69,7 +70,7 @@ class Config:
     num_pde_samples = 2048
     num_rar_samples = 0
     num_rar_pools = 0 # too slow to compute huge pool prediction, and no apparent benefit
-    num_ic_samples = 256
+    num_ic_samples = 1024
 
     lbd = 5.0
     N_val = 63  # element num in fem, points is N_val + 1

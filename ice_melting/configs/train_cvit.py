@@ -6,7 +6,7 @@ import jax.numpy as jnp
 @dataclass(frozen=True)
 class Config:
     model_name = "cvit"
-    data_dir = "./data/ice_melting/ellipse"
+    data_dir = "./data/ice_melting/ellipse_refined_dt"
     save_dir = "/root/autodl-tmp/tf-logs/ice_melting/ellipse/cvit"
     target_ts = jnp.array([0.0, 1.0, 2.0, 3.0])
     spatial_domain = ((-0.5, 0.5), (-0.5, 0.5))  # x range, y range, normalized
@@ -55,7 +55,7 @@ class Config:
     initial_lr = 5e-4
     decay_every = 100
     decay_rate = 0.95
-    batch_size = 64
+    min_lr = 1e-5
     save_every = 500
     log_every = 50
     test_every = 500
@@ -65,7 +65,7 @@ class Config:
     num_pde_samples = 2048
     num_rar_samples = 0
     num_rar_pools = 0 # too slow to compute huge pool prediction, and no apparent benefit
-    num_ic_samples = 256
+    num_ic_samples = 1024
 
     lbd = 5.0
     N_val = 63  # element num in fem, points is N_val + 1

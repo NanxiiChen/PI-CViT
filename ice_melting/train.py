@@ -137,7 +137,7 @@ def main():
         transition_steps=configs.decay_every,
         decay_rate=configs.decay_rate,
         staircase=False,
-        end_value=1e-5,
+        end_value=configs.min_lr,
     )
     # optimizer = optax.adam(scheduler)
     optimizer = optax.chain(
