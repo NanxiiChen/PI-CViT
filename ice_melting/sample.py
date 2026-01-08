@@ -259,7 +259,9 @@ if __name__ == "__main__":
     fs = FunctionSampler(grid_size=(64, 64), num_u_samples=9)
     key = jax.random.PRNGKey(0)
     params = fs.sample_params(key)
-    u = fs.evaluate(1.0, params)
+    epsilon = 6 * 100 / 63 / (2 * jnp.sqrt(2) * jnp.arctanh(0.9))
+    u = fs.evaluate(epsilon, 
+                    params)
     print(u.shape)
     fig, axes = plt.subplots(3, 3, figsize=(8, 8))
     axes = axes.flatten()

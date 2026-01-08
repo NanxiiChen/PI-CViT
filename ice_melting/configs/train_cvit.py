@@ -28,7 +28,7 @@ class Config:
         depth=2,
         num_heads=8,
         ## model:decoder
-        fourier_freq=2.0,
+        fourier_freq=1.0,
         dec_depth=2,
         dec_num_heads=8,
         dec_emb_dim=256,  # two times of ffe hidden dim (sin, cos)
@@ -55,7 +55,7 @@ class Config:
     initial_lr = 5e-4
     decay_every = 100
     decay_rate = 0.95
-    min_lr = 1e-5
+    min_lr = 1e-6
     save_every = 500
     log_every = 50
     test_every = 500

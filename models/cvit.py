@@ -202,7 +202,8 @@ class CrossAttnBlock(eqx.Module):
             hidden_dim=int(emb_dim * mlp_ratio)
         )
 
-    def __call__(self, q_inputs, kv_inputs, scale=None, shift=None):
+    def __call__(self, q_inputs, kv_inputs, 
+                 scale=None, shift=None):
         # q_inputs: (N_query, emb_dim)
         # kv_inputs: (N_kv, emb_dim)
         q = jax.vmap(self.norm_q)(q_inputs)
