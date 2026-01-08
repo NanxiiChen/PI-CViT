@@ -49,7 +49,7 @@ class Config:
     causality_params = dict(
         num_chunks=24,
         initial_eps=1e-2,
-        max_eps=1000,
+        max_eps=100,
         step_size=10.0,
         min_mean_weight=0.4,
         max_min_weight=0.99,

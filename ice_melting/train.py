@@ -1,6 +1,7 @@
 import argparse
 import os
 import time
+from dataclasses import asdict
 
 import equinox as eqx
 import jax
@@ -12,6 +13,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 from tensorboardX import SummaryWriter
+
 
 # from .configs import Configs
 from models import get_model

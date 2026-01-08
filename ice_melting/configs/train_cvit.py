@@ -6,7 +6,7 @@ import jax.numpy as jnp
 @dataclass(frozen=True)
 class Config:
     model_name = "cvit"
-    data_dir = "./data/ice_melting/ellipse_refined_dt"
+    data_dir = "./data/ice_melting/ellipse"
     save_dir = "/root/autodl-tmp/tf-logs/ice_melting/ellipse/cvit"
     target_ts = jnp.array([0.0, 1.0, 2.0, 3.0])
     spatial_domain = ((-0.5, 0.5), (-0.5, 0.5))  # x range, y range, normalized
@@ -44,7 +44,7 @@ class Config:
     causality_params = dict(
         num_chunks=24,
         initial_eps=1e-2,
-        max_eps=1000,
+        max_eps=100,
         step_size=10.0,
         min_mean_weight=0.4,
         max_min_weight=0.99,

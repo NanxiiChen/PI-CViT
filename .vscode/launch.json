@@ -19,6 +19,8 @@
             "cwd": "${workspaceFolder}",
             "module": "ice_melting.train",
             "args": [
+                "--configs",
+                "train_cvit"
             ]
         },
     ]
