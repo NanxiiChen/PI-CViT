@@ -1,4 +1,6 @@
 import jax
+from .soap import scale_by_soap as scale_by_soap
+from .soap import soap as soap
 
 def get_model(model_name, key, in_channels, out_dim, **kwargs):
     """
