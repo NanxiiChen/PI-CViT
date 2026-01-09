@@ -365,6 +365,7 @@ class Decoder(eqx.Module):
         enc_emb_dim: int, # Dimension coming from encoder
         coord_dim: int = 3, # Dimension of coordinates + time
         layer_norm_eps: float = 1e-5,
+        use_time_film: bool = True,
     ):
         k_four, k_proj, k_mlp, *k_blocks = jr.split(key, 3 + dec_depth)
         self.dec_depth = dec_depth
@@ -374,13 +375,13 @@ class Decoder(eqx.Module):
         self.fourier_embs_x = FourierEmbs(
             key=k_four_x,
             embed_scale=fourier_freq,
-            embed_dim=dec_emb_dim,
+            embed_dim=dec_emb_dim if use_time_film else dec_emb_dim//2,
             input_dim=coord_dim-1
         )
         self.fourier_embs_t = FourierEmbs(
             key=k_four_t,
             embed_scale=fourier_freq,
-            embed_dim=dec_emb_dim,
+            embed_dim=dec_emb_dim if use_time_film else dec_emb_dim//2,
             input_dim=1
         )
         self.time_film = Mlp(
@@ -390,13 +391,15 @@ class Decoder(eqx.Module):
             out_dim=dec_depth*dec_emb_dim*2,
             in_dim=dec_emb_dim,
             act="silu"
-        )
-        self.time_film = eqx.tree_at(
-            lambda m: (m.layers[-1].weight, m.layers[-1].bias),
-            self.time_film,
-            (jnp.zeros_like(self.time_film.layers[-1].weight), 
-             jnp.zeros_like(self.time_film.layers[-1].bias))
-        )
+        ) if use_time_film else None
+        
+        if use_time_film:
+            self.time_film = eqx.tree_at(
+                lambda m: (m.layers[-1].weight, m.layers[-1].bias),
+                self.time_film,
+                (jnp.zeros_like(self.time_film.layers[-1].weight), 
+                jnp.zeros_like(self.time_film.layers[-1].bias))
+            )
 
 
         self.proj_x = nn.Linear(enc_emb_dim, dec_emb_dim, key=k_proj)
@@ -429,21 +432,24 @@ class Decoder(eqx.Module):
         # t: (N_query, 1)
         
         # Combine spatial and temporal coords, 
-        queries = self.fourier_embs_x(x)  # (N_query, dec_emb_dim)
-        # t_emb = jax.vmap(self.time_mlp)(t)  # (N_query, dec_emb_dim*2)
-        # scale, shift = jnp.split(t_emb, 2, axis=-1)  # (N_query, dec_emb_dim), (N_query, dec_emb_dim)
-        # queries = x_emb * (1 + scale) + shift  # (N_query, dec_emb_dim)
-        t_emb = self.fourier_embs_t(t)  # (N_query, dec_emb_dim)
-        film = jax.vmap(self.time_film)(t_emb)  # (N_query, dec_depth*dec_emb_dim*2)
-        film = film.reshape(-1, self.dec_depth, 2, self.dec_emb_dim) # (N_query, dec_depth,2, dec_emb_dim)
-        scale = film[:, :, 0, :]  # (N_query, dec_depth, dec_emb_dim)
-        shift = film[:, :, 1, :]  # (N_query, dec_depth, dec_emb_dim)
-        # Project encoder output
+        x_emb = self.fourier_embs_x(x)  # (N_query, dec_emb_dim) or (N_query, dec_emb_dim//2)
+        t_emb = self.fourier_embs_t(t)  # (N_query, dec_emb_dim) or (N_query, dec_emb_dim//2)
         keys_values = jax.vmap(self.proj_x)(u)  # (N_patch, dec_emb_dim)
+        if self.time_film is None:
+            queries = jnp.concatenate([x_emb, t_emb], axis=-1)  # (N_query, dec_emb_dim)
+            for i, block in enumerate(self.blocks):
+                queries = block(queries, keys_values, scale=None, shift=None)
+
+        else:
+            queries = x_emb # (N_query, dec_emb_dim)
+            film = jax.vmap(self.time_film)(t_emb)  # (N_query, dec_depth*dec_emb_dim*2)
+            film = film.reshape(-1, self.dec_depth, 2, self.dec_emb_dim) # (N_query, dec_depth,2, dec_emb_dim)
+            scale = film[:, :, 0, :]  # (N_query, dec_depth, dec_emb_dim)
+            shift = film[:, :, 1, :]  # (N_query, dec_depth, dec_emb_dim)
         
-        # Cross attention blocks
-        for i, block in enumerate(self.blocks):
-            queries = block(queries, keys_values, scale=scale[:, i, :], shift=shift[:, i, :])
+            # Cross attention blocks
+            for i, block in enumerate(self.blocks):
+                queries = block(queries, keys_values, scale=scale[:, i, :], shift=shift[:, i, :])
             
         queries = jax.vmap(self.norm)(queries)
         output = jax.vmap(self.mlp)(queries)  # (N_query, out_dim)
@@ -473,6 +479,7 @@ class CViT(eqx.Module):
         num_mlp_layers: int = 1,
         out_dim: int = 2,
         layer_norm_eps: float = 1e-5,
+        use_time_film: bool = True,
     ):
         k_enc, k_dec = jr.split(key)
         
@@ -501,6 +508,7 @@ class CViT(eqx.Module):
             enc_emb_dim=emb_dim,
             coord_dim=3, # (x, y, t)
             layer_norm_eps=layer_norm_eps,
+            use_time_film=use_time_film
         )
 
 
