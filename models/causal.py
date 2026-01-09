@@ -81,8 +81,8 @@ class CausalWeightor:
         if min_weight > max_min_weight and eps < max_eps:
             new_eps = eps * step_size
 
-        if mean_weight < min_mean_weight:
-            new_eps = eps / step_size
+        # if mean_weight < min_mean_weight:
+        #     new_eps = eps / step_size
 
         if not isinstance(new_eps, jnp.ndarray):
             new_eps = jnp.array(new_eps)

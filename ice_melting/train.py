@@ -5,6 +5,7 @@ from dataclasses import asdict
 
 import equinox as eqx
 import jax
+jax.config.update("jax_default_matmul_precision", "highest")
 import jax.numpy as jnp
 import optax
 from sklearn.model_selection import train_test_split
@@ -16,7 +17,7 @@ from tensorboardX import SummaryWriter
 
 
 # from .configs import Configs
-from models import get_model
+from models import get_model, get_optimizer
 from models.causal import CausalWeightor
 
 from .configs import load_configs
@@ -120,6 +121,12 @@ def main():
         key=subkey,
         **model_params,
     )
+
+    ckpt_path = configs.ckpt
+    if ckpt_path is not None and os.path.exists(ckpt_path):
+        print(f"Load model from checkpoint: {ckpt_path}")
+        model = eqx.tree_deserialise_leaves(ckpt_path, model)
+
     causal_weightor = CausalWeightor(
         num_chunks=configs.causality_params["num_chunks"],
         t_range=configs.temporal_domain,
@@ -134,17 +141,19 @@ def main():
     active_loss_names = ("pde", "ic", "irr")
     active_losses = tuple(f"loss_{name}" for name in active_loss_names)
 
-    scheduler = optax.exponential_decay(
+    # optimizer = optax.adam(scheduler)
+    optimizer = get_optimizer(
+        optimizer_name=configs.optimizer_name,
         init_value=configs.initial_lr,
         transition_steps=configs.decay_every,
         decay_rate=configs.decay_rate,
         staircase=False,
         end_value=configs.min_lr,
-    )
-    # optimizer = optax.adam(scheduler)
-    optimizer = optax.chain(
-        optax.clip_by_global_norm(configs.max_grad_norm),
-        optax.adam(scheduler),
+        b1=0.95,
+        b2=0.99,
+        precondition_frequency=5,
+        weight_decay=1e-6,
+        max_grad_norm=configs.max_grad_norm,
     )
     opt_state = optimizer.init(eqx.filter(model, eqx.is_array))
 

@@ -8,6 +8,8 @@ class Config:
     model_name = "cvit"
     data_dir = "./data/ice_melting/ellipse"
     save_dir = "/root/autodl-tmp/tf-logs/ice_melting/ellipse/cvit"
+    # ckpt = "/root/autodl-tmp/tf-logs/ice_melting/ellipse/cvit/0108baseline15k/model_epoch_15000.eqx"
+    ckpt = None
     target_ts = jnp.array([0.0, 1.0, 2.0, 3.0])
     spatial_domain = ((-0.5, 0.5), (-0.5, 0.5))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
@@ -36,22 +38,24 @@ class Config:
         num_mlp_layers=3,
         out_dim=1,  # phi,
         layer_norm_eps=1e-5,
+        use_time_film=True,
     )
 
     use_causality = True
     max_grad_norm = 1.0
+    optimizer_name = "soap" # adam. soap
 
     causality_params = dict(
         num_chunks=24,
         initial_eps=1e-2,
         max_eps=100,
-        step_size=10.0,
+        step_size=5.0,
         min_mean_weight=0.4,
         max_min_weight=0.99,
     )
 
     # training hyperparameters
-    num_epochs = 50000
+    num_epochs = 15000
     initial_lr = 5e-4
     decay_every = 100
     decay_rate = 0.95

@@ -71,5 +71,5 @@ if __name__ == "__main__":
     plt.xlim(mins[0], maxs[0])
     plt.ylim(mins[1], maxs[1])
     plt.grid()
-    plt.savefig('tmp.png')
+    plt.savefig('tmp/lhssample.png')
     plt.show()
