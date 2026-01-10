@@ -246,7 +246,7 @@ class Losses(eqx.Module):
 
         # enforcing dphi/dt < 0
         residual = jax.nn.relu(dphi_dt)
-        return residual * 1e6
+        return residual * 1e4
 
     
     def loss_irr(self,
