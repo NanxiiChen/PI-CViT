@@ -57,6 +57,8 @@ def train_step(
     ic_coords: jnp.ndarray,
     cfg: dict,
     ic_fn: callable,
+    last_weights: jnp.ndarray,
+    alpha_w: float,
     active_losses: tuple = ("loss_pde", "loss_ic", "loss_irr"),
     **kwargs 
     # kwargs includes causal_eps, 
@@ -67,7 +69,10 @@ def train_step(
     # pde_coords: (N_query=num_pde_samples, 3)
     # ic_coords: (N_query=num_ic_samples, 3)
     (total_loss, (losses, weights, aux_vars)), total_grad = loss_fn(
-        model, batch_u, batch_params, pde_coords, ic_coords, cfg, ic_fn, active_losses, **kwargs
+        model, batch_u, batch_params, 
+        pde_coords, ic_coords, cfg, 
+        ic_fn, last_weights, alpha_w,
+        active_losses, **kwargs
     )
     updates, new_state = optimizer.update(total_grad, state, model)
     new_model = eqx.apply_updates(model, updates)
@@ -152,12 +157,12 @@ def main():
         b1=0.95,
         b2=0.99,
         precondition_frequency=5,
-        weight_decay=1e-6,
+        weight_decay=1e-3,
         max_grad_norm=configs.max_grad_norm,
     )
-    opt_state = optimizer.init(eqx.filter(model, eqx.is_array))
+    opt_state = optimizer.init(eqx.filter(model, eqx.is_array)) 
 
-
+    last_weights = jnp.array([1.0] * len(active_losses)) / len(active_losses)
     epochs = configs.num_epochs
     for epoch in range(epochs):
         subkey, key = jax.random.split(key)
@@ -191,9 +196,12 @@ def main():
             ic_coords,
             configs,
             ic_fn,
+            last_weights,
+            configs.alpha_w,
             active_losses=active_losses,
             causal_eps=causal_eps,
         )
+        last_weights = weights
 
         if configs.use_causality:
             loss_chunks = aux_vars.get("loss_chunks", None)

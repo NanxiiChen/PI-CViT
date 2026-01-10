@@ -6,7 +6,7 @@ import jax.numpy as jnp
 @dataclass(frozen=True)
 class Config:
     model_name = "cvit"
-    data_dir = "./data/ice_melting/ellipse"
+    data_dir = "./data/ice_melting/ellipse_refined_dt"
     save_dir = "/root/autodl-tmp/tf-logs/ice_melting/ellipse/cvit"
     # ckpt = "/root/autodl-tmp/tf-logs/ice_melting/ellipse/cvit/0108baseline15k/model_epoch_15000.eqx"
     ckpt = None
@@ -43,7 +43,8 @@ class Config:
 
     use_causality = True
     max_grad_norm = 1.0
-    optimizer_name = "soap" # adam. soap
+    optimizer_name = "adam" # adam. soap
+    alpha_w = 1.0 # moving average weight for loss balancing
 
     causality_params = dict(
         num_chunks=24,

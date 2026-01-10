@@ -52,9 +52,7 @@ def get_optimizer(
             "eps": kwargs.get("eps", 1e-8),
             "max_precond_dim": kwargs.get("max_precond_dim", 10000),
         }
-        return optax.chain(
-            optax.clip_by_global_norm(max_grad_norm),
-            soap(learning_rate=scheduler, **soap_kwargs),
-        )
+        return soap(learning_rate=scheduler, **soap_kwargs)
+
     else:
         raise ValueError(f"Optimizer {optimizer_name} not recognized.")

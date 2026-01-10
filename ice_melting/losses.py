@@ -246,7 +246,7 @@ class Losses(eqx.Module):
 
         # enforcing dphi/dt < 0
         residual = jax.nn.relu(dphi_dt)
-        return residual
+        return residual * 1e6
 
     
     def loss_irr(self,
@@ -276,6 +276,8 @@ class Losses(eqx.Module):
                 ic_coords: jnp.ndarray,
                 cfg: Config,
                 ic_fn: Callable[[jnp.ndarray], jnp.ndarray],
+                last_weigts: jnp.ndarray,
+                alpha_w: float,
                 active_losses: Tuple[str, ...] = ("loss_pde", "loss_ic", "loss_irr"),
                 **kwargs,
                 ) -> Tuple[Tuple[jnp.ndarray, Tuple[list, jnp.ndarray, dict]], eqx.Module]:
@@ -326,7 +328,10 @@ class Losses(eqx.Module):
             grads.append(grad)
             aux_vars.update(aux)
             
+
         weights = self.grad_norm_weights(grads)
+        weights = alpha_w * weights + (1 - alpha_w) * last_weigts
+        
         # weights = weights.at[-1].set(2*weights[-1])  # Emphasize IC loss
         total_loss = jnp.sum(jnp.array(losses) * weights)
         
