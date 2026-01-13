@@ -4,6 +4,7 @@
     // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+
         {
             "name": "Python 调试程序: 当前文件",
             "type": "debugpy",
@@ -18,6 +19,18 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "module": "ice_melting.train",
+            "args": [
+                "--configs",
+                "train_cvit"
+            ]
+        },
+        {
+            "name": "Python 调试程序: burgers",
+            "type": "debugpy",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "module": "burgers.losses",
             "args": [
                 "--configs",
                 "train_cvit"
