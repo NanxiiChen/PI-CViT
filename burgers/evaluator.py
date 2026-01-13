@@ -76,7 +76,7 @@ def evaluate_model(
         [jnp.argmin(jnp.abs(fft_times - t)) for t in target_ts]
     )
     # ! fixed batch size to 1 for evaluation
-    ref_sols = ref_sols[0:1, idxs, ...] # B, T, C, H, W
+    ref_sols = ref_sols[:, idxs, ...] # B, T, C, H, W
 
     B, T, C, H, W = ref_sols.shape
     us = ref_sols[:, 0, ...] # B, C=2, H, W
@@ -198,7 +198,7 @@ def evaluate_model(
             
         colorbar = fig.colorbar(
             diff_cont, ax=ax, fraction=0.046, pad=0.04, orientation="horizontal",
-            format="%.2f", ticks=jnp.linspace(0, jnp.max(diff), num=3)
+            format="%.3f", ticks=jnp.linspace(0, jnp.max(diff), num=3)
         )
 
     total_l2 = jnp.sqrt(jnp.sum((ref_sols - sols) ** 2, axis=(1, 3, 4))) / jnp.sqrt(

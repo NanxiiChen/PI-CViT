@@ -69,7 +69,7 @@ class Config:
     test_every = 50
     resample_every = 1
 
-    num_u_samples = 1
+    num_u_samples = 8
     num_pde_samples = 2048
     num_rar_samples = 0
     num_rar_pools = 0 # too slow to compute huge pool prediction, and no apparent benefit

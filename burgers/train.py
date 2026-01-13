@@ -140,7 +140,7 @@ def main():
     # ! try train on the test data to validate the correctness of the code
     data = jnp.load(f"{configs.data_dir}/burgers_solutions.npz")
     ref_sols = data["solutions"] # B, T, C, H, W
-    u0 = ref_sols[0:1, 0, ...] # B, C, H, W
+    u0 = ref_sols[:, 0, ...] # B, C, H, W
     
     for epoch in range(epochs):
         subkey, key = jax.random.split(key)
