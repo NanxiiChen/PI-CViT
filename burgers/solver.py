@@ -39,12 +39,12 @@ class BurgersSolver2D:
         # 空间网格
         self.x = np.linspace(0, Lx, Nx, endpoint=False)
         self.y = np.linspace(0, Ly, Ny, endpoint=False)
-        self.X, self.Y = np.meshgrid(self.x, self.y, indexing='ij')
+        self.X, self.Y = np.meshgrid(self.x, self.y, indexing='xy')
         
         # 频域波数
         self.kx = 2 * np.pi * fftfreq(Nx, Lx/Nx)
         self.ky = 2 * np.pi * fftfreq(Ny, Ly/Ny)
-        self.KX, self.KY = np.meshgrid(self.kx, self.ky, indexing='ij')
+        self.KX, self.KY = np.meshgrid(self.kx, self.ky, indexing='xy')
         
         # 拉普拉斯算子 (频域)
         self.laplacian = -(self.KX**2 + self.KY**2)
@@ -302,7 +302,7 @@ def generate_periodic_ics(Nx, Ny, length_scale=0.1, amplitude=0.01, seed=None,
         np.random.seed(seed)
     kx = np.fft.fftfreq(Nx, d=Lx/Nx) * 2 * np.pi
     ky = np.fft.fftfreq(Ny, d=Ly/Ny) * 2 * np.pi
-    KX, KY = np.meshgrid(kx, ky, indexing='ij')
+    KX, KY = np.meshgrid(kx, ky, indexing='xy')
     K2 = KX**2 + KY**2
 
     # Spectral density of RBF kernel
@@ -326,7 +326,7 @@ if __name__ == "__main__":
     dt = 0.001  # 时间步长
     save_interval = 0.1  # 保存间隔
     length_scale = 0.1  # RBF kernel长度尺度
-    amplitude = 0.1  # 初始条件振幅
+    amplitude = 0.2  # 初始条件振幅
     seed = 543  # 初始条件随机种子
     
     print("="*60)
@@ -443,7 +443,7 @@ if __name__ == "__main__":
         axes = axes.ravel()
         kx = 2 * np.pi * fftfreq(Nx, 1/Nx)
         ky = 2 * np.pi * fftfreq(Ny, 1/Ny)
-        KX, KY = np.meshgrid(kx, ky, indexing='ij')
+        KX, KY = np.meshgrid(kx, ky, indexing='xy')
         
         for i, t_idx in enumerate(time_indices):
             u = solutions[0, t_idx, 0, :, :]

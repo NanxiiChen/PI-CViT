@@ -6,18 +6,19 @@ import jax.numpy as jnp
 @dataclass(frozen=True)
 class Config:
     model_name = "cvit"
-    data_dir = "./data/burgers/burgers_solutions.npz"
+    data_dir = "./data/burgers"
     save_dir = "/root/autodl-tmp/tf-logs/burgers/cvit"
     ckpt = None
-    target_ts = jnp.array([0.0, 1.0, 2.0, 3.0])
+    target_ts = jnp.array([0.0, 0.2, 0.5, 0.8, 1.0])  # target time steps for evaluation
     lx = 1.0
     ly = 1.0
     length_scale = 0.1
-    amplitude = 0.1
+    amplitude = 0.2
     Nx = 64  # number of spatial points in x
     Ny = 64  # number of spatial points in y
     spatial_domain = ((0, lx), (0, ly))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
+    active_loss_names = ("pde", "ic",)
 
     Lc = 1.0  # xc = x / Lc
     Tc = 1.0  # tc = t / Tc
@@ -32,12 +33,12 @@ class Config:
         depth=2,
         num_heads=8,
         ## model:decoder
-        fourier_freq=1.0,
+        fourier_freq=2.0,
         dec_depth=2,
         dec_num_heads=8,
         dec_emb_dim=256,  # two times of ffe hidden dim (sin, cos)
-        dec_mlp_act="tanh",
-        num_mlp_layers=3,
+        dec_mlp_act="gelu",
+        num_mlp_layers=2,
         out_dim=2,  # u, v
         layer_norm_eps=1e-5,
         use_time_film=True,
@@ -65,10 +66,10 @@ class Config:
     min_lr = 1e-6
     save_every = 500
     log_every = 50
-    test_every = 500
+    test_every = 50
     resample_every = 1
 
-    num_u_samples = 16
+    num_u_samples = 1
     num_pde_samples = 2048
     num_rar_samples = 0
     num_rar_pools = 0 # too slow to compute huge pool prediction, and no apparent benefit

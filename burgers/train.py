@@ -9,7 +9,6 @@ import jax
 jax.config.update("jax_default_matmul_precision", "highest")
 import jax.numpy as jnp
 import optax
-from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use("Agg")
@@ -25,6 +24,7 @@ from .configs import load_configs
 from .losses import Losses
 from .sample import CoordSampler, DataFactory, FunctionSampler
 from .periodic_cvit import PeriodicCViT
+from .evaluator import evaluate_model
 # from .evaluator import evaluate_model
 
 
@@ -50,7 +50,7 @@ def train_step(
         last_weights, alpha_w,
         active_losses, **kwargs
     )
-    total_grad = jax.tree.map(lambda x: jnp.nan_to_num(x), total_grad)
+    # total_grad = jax.tree.map(lambda x: jnp.nan_to_num(x), total_grad)
     updates, new_state = optimizer.update(total_grad, state, model)
     new_model = eqx.apply_updates(model, updates)
     return new_model, new_state, total_loss, losses, weights, aux_vars
@@ -75,7 +75,7 @@ def main():
         lx=configs.lx, ly=configs.ly, 
         length_scale=configs.length_scale,
         amplitude=configs.amplitude,
-        grid_size=configs.grid_size,
+        grid_size=configs.model_params["grid_size"],
         num_u_samples=configs.num_u_samples
     )
     coord_sampler = CoordSampler(
@@ -100,6 +100,11 @@ def main():
             **model_params,
         )
         
+    ckpt_path = configs.ckpt
+    if ckpt_path is not None and os.path.exists(ckpt_path):
+        print(f"Load model from checkpoint: {ckpt_path}")
+        model = eqx.tree_deserialise_leaves(ckpt_path, model)
+
     causal_weightor = CausalWeightor(
         num_chunks=configs.causality_params["num_chunks"],
         t_range=configs.temporal_domain,
@@ -110,7 +115,7 @@ def main():
     # !!! otherwise, it will cause jit compilation every time when `causal_eps` is updated
     causal_eps = jnp.array(configs.causality_params["initial_eps"])
     loss_fn = losses.loss_fn
-    active_loss_names = ("pde", "ic",)
+    active_loss_names = configs.active_loss_names
     active_losses = tuple(f"loss_{name}" for name in active_loss_names)
     
     optimizer = get_optimizer(
@@ -124,24 +129,37 @@ def main():
         b2=0.95,
         precondition_frequency=5,
         weight_decay=1e-3,
-        max_grad_norm=configs.max_grad_norm,
+        max_grad_norm=None,
     )
     
     opt_state = optimizer.init(eqx.filter(model, eqx.is_array)) 
 
     last_weights = jnp.array([1.0] * len(active_losses)) / len(active_losses)
     epochs = configs.num_epochs
+    
+    # ! try train on the test data to validate the correctness of the code
+    data = jnp.load(f"{configs.data_dir}/burgers_solutions.npz")
+    ref_sols = data["solutions"] # B, T, C, H, W
+    u0 = ref_sols[0:1, 0, ...] # B, C, H, W
+    
     for epoch in range(epochs):
         subkey, key = jax.random.split(key)
         if epoch % configs.resample_every == 0:
-            batch_u, pde_coords = data_factory.sample(subkey)
+            batch_u, pde_coords = data_factory.get_batch(subkey)
+            # ! try fix u0 using the test data
+            batch_u = u0
             x_pde, t_pde = pde_coords[:, 0:2], pde_coords[:, 2:3]
             
         if epoch % configs.test_every == 0:
             eval_key, key = jax.random.split(key)
-            fig = None
-            l2 = 0.0
-            # TODO: implement evaluate_model function
+            fig, l2 = evaluate_model(
+                model,
+                configs.target_ts,
+                configs.data_dir,
+                configs.Lc,
+                configs.Tc,
+                eval_key
+            )
             writer.add_figure("eval/u_pred_vs_ref", fig, epoch)
             writer.add_scalar("eval/l2_error", l2, epoch)
             plt.close(fig)

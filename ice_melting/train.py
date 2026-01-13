@@ -8,7 +8,6 @@ import jax
 jax.config.update("jax_default_matmul_precision", "highest")
 import jax.numpy as jnp
 import optax
-from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use("Agg")

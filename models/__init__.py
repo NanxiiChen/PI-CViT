@@ -38,6 +38,8 @@ def get_optimizer(
         end_value=end_value,
     )
     if optimizer_name.lower() == "adam":
+        if max_grad_norm is None:
+            return optax.adam(scheduler)
         return optax.chain(
             optax.clip_by_global_norm(max_grad_norm), optax.adam(scheduler)
         )

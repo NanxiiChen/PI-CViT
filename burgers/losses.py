@@ -146,18 +146,17 @@ class Losses(eqx.Module):
         # u: B, C, H, W
         lx = getattr(cfg, 'lx', 1.0)
         ly = getattr(cfg, 'ly', 1.0)
-        Nx = getattr(cfg, 'Nx', u.shape[2])
-        Ny = getattr(cfg, 'Ny', u.shape[3])
-        x1 = jnp.linspace(0, lx, Nx, endpoint=False) # Nx, 
-        x2 = jnp.linspace(0, ly, Ny, endpoint=False) # Ny,
-        xx, yy = jnp.meshgrid(x1, x2, indexing='ij') # (Nx, Ny), the same as u
-        x_ic = jnp.stack([xx.ravel(), yy.ravel()], axis=-1)  # (Nx*Ny, 2)
-        t_ic = jnp.zeros((x_ic.shape[0], 1))  # (Nx*Ny, 1)
+        B, C, H, W = u.shape
+        x1 = jnp.linspace(0, lx, W, endpoint=False) # W, 
+        x2 = jnp.linspace(0, ly, H, endpoint=False) # H,
+        xx, yy = jnp.meshgrid(x1, x2, indexing='xy') # (H, W)
+        x_ic = jnp.stack([xx.ravel(), yy.ravel()], axis=-1)  # (H*W, 2)
+        t_ic = jnp.zeros((x_ic.shape[0], 1))  # (H*W, 1)
         sol = jax.vmap(
             model, in_axes=(0, None, None)
-        )(u, x_ic, t_ic)  # B, (Nx*Ny), 2
+        )(u, x_ic, t_ic)  # B, (H*W), 2
         
-        sol_ref = rearrange(u, 'B C H W -> B (H W) C')  # B, (Nx*Ny), 2
+        sol_ref = rearrange(u, 'B C H W -> B (H W) C')  # B, (H*W), 2
         mse_loss = jnp.mean(jnp.square(sol - sol_ref))
         return mse_loss, {}
         
@@ -189,14 +188,14 @@ class Losses(eqx.Module):
                 cfg=cfg,
                 **kwargs
             )
-            grad = jax.tree.map(lambda g: jnp.nan_to_num(g), grad)
+            # grad = jax.tree.map(lambda g: jnp.nan_to_num(g), grad)
             losses.append(loss)
             grads.append(grad)
             aux_vars.update(aux)
             
         weights = self.grad_norm_weights(grads)
         weights = alpha_w * weights + (1 - alpha_w) * last_weights
-        
+     
         total_loss = jnp.sum(jnp.array(losses) * weights)
         
         total_grad = jax.tree.map(
