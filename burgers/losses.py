@@ -194,6 +194,9 @@ class Losses(eqx.Module):
             aux_vars.update(aux)
             
         weights = self.grad_norm_weights(grads)
+        # enlarge ic weight
+        coef = jnp.array([0.5, 2.0])  # pde, ic
+        weights = weights * coef[:len(active_losses)]
         weights = alpha_w * weights + (1 - alpha_w) * last_weights
      
         total_loss = jnp.sum(jnp.array(losses) * weights)

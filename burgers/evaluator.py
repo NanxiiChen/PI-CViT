@@ -75,7 +75,6 @@ def evaluate_model(
     idxs = jnp.array(
         [jnp.argmin(jnp.abs(fft_times - t)) for t in target_ts]
     )
-    # ! fixed batch size to 1 for evaluation
     ref_sols = ref_sols[:, idxs, ...] # B, T, C, H, W
 
     B, T, C, H, W = ref_sols.shape

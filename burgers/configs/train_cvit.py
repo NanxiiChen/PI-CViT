@@ -66,10 +66,10 @@ class Config:
     min_lr = 1e-6
     save_every = 500
     log_every = 50
-    test_every = 50
-    resample_every = 1
+    test_every = 500
+    resample_every = 100
 
-    num_u_samples = 8
+    num_u_samples = 32
     num_pde_samples = 2048
     num_rar_samples = 0
     num_rar_pools = 0 # too slow to compute huge pool prediction, and no apparent benefit

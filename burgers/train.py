@@ -138,16 +138,16 @@ def main():
     epochs = configs.num_epochs
     
     # ! try train on the test data to validate the correctness of the code
-    data = jnp.load(f"{configs.data_dir}/burgers_solutions.npz")
-    ref_sols = data["solutions"] # B, T, C, H, W
-    u0 = ref_sols[:, 0, ...] # B, C, H, W
+    # data = jnp.load(f"{configs.data_dir}/burgers_solutions.npz")
+    # ref_sols = data["solutions"] # B, T, C, H, W
+    # u0 = ref_sols[:, 0, ...] # B, C, H, W
     
     for epoch in range(epochs):
         subkey, key = jax.random.split(key)
         if epoch % configs.resample_every == 0:
             batch_u, pde_coords = data_factory.get_batch(subkey)
             # ! try fix u0 using the test data
-            batch_u = u0
+            # batch_u = u0
             x_pde, t_pde = pde_coords[:, 0:2], pde_coords[:, 2:3]
             
         if epoch % configs.test_every == 0:
