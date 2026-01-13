@@ -6,26 +6,28 @@ import jax.numpy as jnp
 @dataclass(frozen=True)
 class Config:
     model_name = "cvit"
-    data_dir = "./data/ice_melting/ellipse_refined_dt"
-    save_dir = "/root/autodl-tmp/tf-logs/ice_melting/ellipse/cvit"
-    # ckpt = "/root/autodl-tmp/tf-logs/ice_melting/ellipse/cvit/0108baseline15k/model_epoch_15000.eqx"
+    data_dir = "./data/burgers/burgers_solutions.npz"
+    save_dir = "/root/autodl-tmp/tf-logs/burgers/cvit"
     ckpt = None
     target_ts = jnp.array([0.0, 1.0, 2.0, 3.0])
-    spatial_domain = ((-0.5, 0.5), (-0.5, 0.5))  # x range, y range, normalized
+    lx = 1.0
+    ly = 1.0
+    length_scale = 0.1
+    amplitude = 0.1
+    Nx = 64  # number of spatial points in x
+    Ny = 64  # number of spatial points in y
+    spatial_domain = ((0, lx), (0, ly))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
-    a_range = (20, 40)
-    b_range = (20, 40)
-    theta_range = (0.0, jnp.pi)
-    spatial_domain_phys = ((-50.0, 50.0), (-50.0, 50.0))  # physical spatial domain
-    Lc = 100.0  # xc = x / Lc
-    Tc = 3.0  # tc = t / Tc
+
+    Lc = 1.0  # xc = x / Lc
+    Tc = 1.0  # tc = t / Tc
 
     # model hyperparameters
     model_params = dict(
         ## model:encoder
         patch_size=(8, 8),
         grid_size=(64, 64),
-        in_channels=1,  # phi
+        in_channels=2,  # u, v
         emb_dim=256,  # emb_dim for encoder
         depth=2,
         num_heads=8,
@@ -36,12 +38,12 @@ class Config:
         dec_emb_dim=256,  # two times of ffe hidden dim (sin, cos)
         dec_mlp_act="tanh",
         num_mlp_layers=3,
-        out_dim=1,  # phi,
+        out_dim=2,  # u, v
         layer_norm_eps=1e-5,
         use_time_film=True,
     )
 
-    use_causality = True
+    use_causality = False
     max_grad_norm = 1.0
     optimizer_name = "adam" # adam. soap
     alpha_w = 1.0 # moving average weight for loss balancing
@@ -70,8 +72,8 @@ class Config:
     num_pde_samples = 2048
     num_rar_samples = 0
     num_rar_pools = 0 # too slow to compute huge pool prediction, and no apparent benefit
-    num_ic_samples = 1024
 
+    # material properties
     nu = 0.01
 
     @property

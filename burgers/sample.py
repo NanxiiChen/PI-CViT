@@ -17,12 +17,10 @@ class CoordSampler:
         ),
         temporal_domain: Tuple[float, float] = (0.0, 1.0),
         num_pde_samples: int = 1024,
-        num_ic_samples: int = 256,
     ):
         self.spatial_domain = spatial_domain
         self.temporal_domain = temporal_domain
         self.num_pde_samples = num_pde_samples
-        self.num_ic_samples = num_ic_samples
         
         
     def sample_pde(self, key: jax.Array) -> jnp.ndarray:
