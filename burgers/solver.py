@@ -323,7 +323,7 @@ if __name__ == "__main__":
     Nx, Ny = 64, 64  # 网格大小
     nu = 0.01  # 粘性系数
     t_end = 1.0  # 结束时间
-    dt = 0.001  # 时间步长
+    dt = 0.0001  # 时间步长
     save_interval = 0.1  # 保存间隔
     length_scale = 0.1  # RBF kernel长度尺度
     amplitude = 0.2  # 初始条件振幅
@@ -381,14 +381,14 @@ if __name__ == "__main__":
     
     # 保存结果
     print("\n步骤3: 保存结果...")
-    np.savez('./data/burgers/burgers_solutions.npz',
+    np.savez('./data/burgers/burgers_solutions_refined_dt.npz',
              solutions=solutions,
              times=times,
              x=x,
              y=y,
              nu=nu,
              dt=dt)
-    print("结果已保存到 burgers_solutions.npz")
+    print("结果已保存到 burgers_solutions_refined_dt.npz")
     
     # 统计信息
     print("\n解的统计信息:")
