@@ -2,7 +2,6 @@ from typing import Tuple
 import argparse
 import os
 import time
-from dataclasses import asdict
 
 import equinox as eqx
 import jax
@@ -16,9 +15,7 @@ matplotlib.use("Agg")
 
 from tensorboardX import SummaryWriter
 
-
-# from .configs import Configs
-from models import get_model, get_optimizer
+from models import get_optimizer
 from models.causal import CausalWeightor
 
 from .configs import load_configs
@@ -26,8 +23,6 @@ from .losses import Losses
 from .sample import CoordSampler, DataFactory, FunctionSampler
 from .periodic_cvit import PeriodicCViT
 from .evaluator import evaluate_model
-# from .evaluator import evaluate_model
-
 
 
 @eqx.filter_jit
@@ -144,7 +139,7 @@ def main():
         b2=0.95,
         precondition_frequency=5,
         weight_decay=1e-6,
-        max_grad_norm=None,
+        max_grad_norm=configs.max_grad_norm,
     )
     
     opt_state = optimizer.init(eqx.filter(model, eqx.is_array))
@@ -160,15 +155,16 @@ def main():
     t_pde = None
     for epoch in range(epochs):
         
-        if epoch % configs.resample_coord_every == 0:
-            # batch_u, pde_coords = data_factory.get_batch(subkey)
+        # at the beginning, we let the model train on a fixed set of collocation points for a few epochs
+        # After that, we resample collocation points at every epoch
+        if epoch % configs.resample_coord_every == 0 or epoch >= configs.warmup_epochs:
             subkey, key = jax.random.split(key)
             pde_coords = coord_sampler.resample(subkey)
             # pde_coords are shared for each `u`
             pde_coords = jax.device_put(pde_coords, replicated_sharding) if configs.use_multi_gpu else pde_coords
             x_pde, t_pde = pde_coords[:, 0:2], pde_coords[:, 2:3]
             
-        if epoch % configs.resample_u_every == 0:
+        if epoch % configs.resample_u_every == 0 or epoch >= configs.warmup_epochs:
             subkey, key = jax.random.split(key)
             batch_u = func_sampler.resample(subkey)
             

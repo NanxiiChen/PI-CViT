@@ -20,7 +20,7 @@ class Config:
     spatial_domain = ((0, lx), (0, ly))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
     active_loss_names = ("pde", "ic",)
-    use_multi_gpu = True
+    use_multi_gpu = False
 
     Lc = 1.0  # xc = x / Lc
     Tc = 1.0  # tc = t / Tc
@@ -31,14 +31,14 @@ class Config:
         patch_size=(8, 8),
         grid_size=(64, 64),
         in_channels=2,  # u, v
-        emb_dim=512,  # emb_dim for encoder
+        emb_dim=256,  # emb_dim for encoder
         depth=2,
         num_heads=8,
         ## model:decoder
         fourier_freq=2.0,
         dec_depth=2,
         dec_num_heads=8,
-        dec_emb_dim=512,  # two times of ffe hidden dim (sin, cos)
+        dec_emb_dim=256,  # two times of ffe hidden dim (sin, cos)
         dec_mlp_act="gelu",
         num_mlp_layers=2,
         out_dim=2,  # u, v
@@ -47,16 +47,16 @@ class Config:
     )
 
     use_causality = True
-    max_grad_norm = 1.0
+    max_grad_norm = None
     optimizer_name = "soap" # adam. soap
     alpha_w = 1.0 # moving average weight for loss balancing
 
     causality_params = dict(
         num_chunks=24,
         initial_eps=1e-2,
-        max_eps=100,
+        max_eps=5.0,
         step_size=5.0,
-        min_mean_weight=0.4,
+        min_mean_weight=0.2,
         max_min_weight=0.99,
     )
 
@@ -71,6 +71,7 @@ class Config:
     test_every = 500
     resample_coord_every = 10
     resample_u_every = 100
+    warmup_epochs = 2000
 
     num_u_samples = 32
     num_pde_samples = 2048
