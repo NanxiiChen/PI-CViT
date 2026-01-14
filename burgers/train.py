@@ -128,7 +128,7 @@ def main():
         b1=0.95,
         b2=0.95,
         precondition_frequency=5,
-        weight_decay=1e-3,
+        weight_decay=1e-6,
         max_grad_norm=None,
     )
     
@@ -137,18 +137,18 @@ def main():
     last_weights = jnp.array([1.0] * len(active_losses)) / len(active_losses)
     epochs = configs.num_epochs
     
-    # ! try train on the test data to validate the correctness of the code
-    # data = jnp.load(f"{configs.data_dir}/burgers_solutions.npz")
-    # ref_sols = data["solutions"] # B, T, C, H, W
-    # u0 = ref_sols[:, 0, ...] # B, C, H, W
-    
     for epoch in range(epochs):
-        subkey, key = jax.random.split(key)
-        if epoch % configs.resample_every == 0:
-            batch_u, pde_coords = data_factory.get_batch(subkey)
-            # ! try fix u0 using the test data
-            # batch_u = u0
+        
+        if epoch % configs.resample_coord_every == 0:
+            # batch_u, pde_coords = data_factory.get_batch(subkey)
+            subkey, key = jax.random.split(key)
+            pde_coords = coord_sampler.resample(subkey)
             x_pde, t_pde = pde_coords[:, 0:2], pde_coords[:, 2:3]
+            
+        if epoch % configs.resample_u_every == 0:
+            subkey, key = jax.random.split(key)
+            batch_u = func_sampler.resample(subkey)
+            
             
         if epoch % configs.test_every == 0:
             eval_key, key = jax.random.split(key)

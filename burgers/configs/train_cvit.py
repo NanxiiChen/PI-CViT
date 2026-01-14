@@ -46,7 +46,7 @@ class Config:
 
     use_causality = False
     max_grad_norm = 1.0
-    optimizer_name = "adam" # adam. soap
+    optimizer_name = "soap" # adam. soap
     alpha_w = 1.0 # moving average weight for loss balancing
 
     causality_params = dict(
@@ -67,7 +67,8 @@ class Config:
     save_every = 500
     log_every = 50
     test_every = 500
-    resample_every = 100
+    resample_coord_every = 10
+    resample_u_every = 100
 
     num_u_samples = 32
     num_pde_samples = 2048
