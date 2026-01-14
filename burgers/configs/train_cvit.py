@@ -8,7 +8,7 @@ class Config:
     model_name = "cvit"
     data_dir = "./data/burgers"
     save_dir = "/root/autodl-tmp/tf-logs/burgers/cvit"
-    ckpt = None
+    ckpt = save_dir + "/ic_warmup/model_epoch_1000.eqx"
     target_ts = jnp.array([0.0, 0.2, 0.5, 0.8, 1.0])  # target time steps for evaluation
     lx = 1.0
     ly = 1.0
@@ -19,6 +19,7 @@ class Config:
     spatial_domain = ((0, lx), (0, ly))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
     active_loss_names = ("pde", "ic",)
+    use_multi_gpu = True
 
     Lc = 1.0  # xc = x / Lc
     Tc = 1.0  # tc = t / Tc
@@ -71,7 +72,7 @@ class Config:
     resample_u_every = 100
 
     num_u_samples = 32
-    num_pde_samples = 2048
+    num_pde_samples = 4096
     num_rar_samples = 0
     num_rar_pools = 0 # too slow to compute huge pool prediction, and no apparent benefit
 

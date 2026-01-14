@@ -7,6 +7,7 @@ from dataclasses import asdict
 import equinox as eqx
 import jax
 jax.config.update("jax_default_matmul_precision", "highest")
+from jax.sharding import Mesh, NamedSharding, PartitionSpec
 import jax.numpy as jnp
 import optax
 import matplotlib.pyplot as plt
@@ -71,6 +72,16 @@ def main():
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
     
+    if configs.use_multi_gpu:
+        devices = jax.devices()
+        num_devices = len(devices)
+        print(f"Number of devices: {num_devices}, devices: {devices}")
+        mesh = Mesh(devices, axis_names=("batch",))
+        replicated_sharding = NamedSharding(mesh, PartitionSpec())
+        # split `u` to different devices along the batch dimension
+        # u shape: B, C, H, W
+        data_sharding = NamedSharding(mesh, PartitionSpec("batch", None, None, None))
+    
     func_sampler = FunctionSampler(
         lx=configs.lx, ly=configs.ly, 
         length_scale=configs.length_scale,
@@ -104,6 +115,10 @@ def main():
     if ckpt_path is not None and os.path.exists(ckpt_path):
         print(f"Load model from checkpoint: {ckpt_path}")
         model = eqx.tree_deserialise_leaves(ckpt_path, model)
+    
+    if configs.use_multi_gpu:
+        model = eqx.filter_shard(model, replicated_sharding)
+
 
     causal_weightor = CausalWeightor(
         num_chunks=configs.causality_params["num_chunks"],
@@ -132,22 +147,33 @@ def main():
         max_grad_norm=None,
     )
     
-    opt_state = optimizer.init(eqx.filter(model, eqx.is_array)) 
-
+    opt_state = optimizer.init(eqx.filter(model, eqx.is_array))
     last_weights = jnp.array([1.0] * len(active_losses)) / len(active_losses)
+    if configs.use_multi_gpu:
+        opt_state = eqx.filter_shard(opt_state, replicated_sharding)
+        last_weights = jax.device_put(last_weights, replicated_sharding)
+    
     epochs = configs.num_epochs
     
+    batch_u = None
+    x_pde = None
+    t_pde = None
     for epoch in range(epochs):
         
         if epoch % configs.resample_coord_every == 0:
             # batch_u, pde_coords = data_factory.get_batch(subkey)
             subkey, key = jax.random.split(key)
             pde_coords = coord_sampler.resample(subkey)
+            # pde_coords are shared for each `u`
+            pde_coords = jax.device_put(pde_coords, replicated_sharding) if configs.use_multi_gpu else pde_coords
             x_pde, t_pde = pde_coords[:, 0:2], pde_coords[:, 2:3]
             
         if epoch % configs.resample_u_every == 0:
             subkey, key = jax.random.split(key)
             batch_u = func_sampler.resample(subkey)
+            
+            if configs.use_multi_gpu:
+                batch_u = jax.device_put(batch_u, data_sharding)
             
             
         if epoch % configs.test_every == 0:
