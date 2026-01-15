@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-import jax
 import jax.numpy as jnp
 
 
@@ -8,7 +7,7 @@ class Config:
     model_name = "cvit"
     data_dir = "./data/burgers"
     save_dir = "/root/autodl-tmp/tf-logs/burgers/cvit"
-    # ckpt = save_dir + "/ic_warmup/model_epoch_1000.eqx"
+    # ckpt = save_dir + "/20260115-204856/model_epoch_3000.eqx"
     ckpt = None
     target_ts = jnp.array([0.0, 0.2, 0.5, 0.8, 1.0])  # target time steps for evaluation
     lx = 1.0
@@ -20,7 +19,7 @@ class Config:
     spatial_domain = ((0, lx), (0, ly))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
     active_loss_names = ("pde", "ic",)
-    use_multi_gpu = False
+    use_multi_gpu = True
 
     Lc = 1.0  # xc = x / Lc
     Tc = 1.0  # tc = t / Tc
@@ -47,8 +46,9 @@ class Config:
     )
 
     use_causality = True
-    max_grad_norm = None
+    max_grad_norm = 1.0
     optimizer_name = "soap" # adam. soap
+    # `adam`` cannot make it, especially for `ic` term.
     alpha_w = 1.0 # moving average weight for loss balancing
 
     causality_params = dict(
@@ -63,9 +63,9 @@ class Config:
     # training hyperparameters
     num_epochs = 15000
     initial_lr = 5e-4
-    decay_every = 100
+    decay_every = 200
     decay_rate = 0.95
-    min_lr = 1e-6
+    min_lr = 1e-5
     save_every = 500
     log_every = 50
     test_every = 500

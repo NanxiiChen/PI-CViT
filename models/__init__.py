@@ -1,7 +1,4 @@
-import jax
 import optax
-from .soap import scale_by_soap as scale_by_soap
-from .soap import soap as soap
 
 
 def get_model(model_name, key, in_channels, out_dim, **kwargs):
@@ -45,6 +42,7 @@ def get_optimizer(
         )
 
     elif optimizer_name.lower() == "soap":
+        from .soap import soap as soap
         soap_kwargs = {
             "b1": kwargs.get("b1", 0.95),
             "b2": kwargs.get("b2", 0.99),
@@ -54,7 +52,12 @@ def get_optimizer(
             "eps": kwargs.get("eps", 1e-8),
             "max_precond_dim": kwargs.get("max_precond_dim", 10000),
         }
-        return soap(learning_rate=scheduler, **soap_kwargs)
+        optimizer = soap(learning_rate=scheduler, **soap_kwargs)
+        if max_grad_norm is not None:
+            return optax.chain(
+                optax.clip_by_global_norm(max_grad_norm), optimizer
+            )
+        return optimizer
 
     else:
         raise ValueError(f"Optimizer {optimizer_name} not recognized.")

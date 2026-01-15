@@ -48,7 +48,7 @@ def train_step(
         weight_coef, active_losses, 
         **kwargs
     )
-    # total_grad = jax.tree.map(lambda x: jnp.nan_to_num(x), total_grad)
+    total_grad = jax.tree.map(lambda x: jnp.nan_to_num(x), total_grad)
     updates, new_state = optimizer.update(total_grad, state, model)
     new_model = eqx.apply_updates(model, updates)
     return new_model, new_state, total_loss, losses, weights, aux_vars
@@ -137,7 +137,7 @@ def main():
         decay_rate=configs.decay_rate,
         staircase=False,
         end_value=configs.min_lr,
-        b1=0.95,
+        b1=0.90,
         b2=0.95,
         precondition_frequency=5,
         weight_decay=1e-6,
