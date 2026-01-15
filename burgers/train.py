@@ -37,6 +37,7 @@ def train_step(
     cfg: dict,
     last_weights: jnp.ndarray,
     alpha_w: float, 
+    weight_coef: jnp.array = jnp.array([1.0, 1.0]),
     active_losses: Tuple[str] = ("loss_pde", "loss_ic", ),
     **kwargs
 ):
@@ -44,7 +45,8 @@ def train_step(
         model, batch_u, 
         x_pde, t_pde, cfg, 
         last_weights, alpha_w,
-        active_losses, **kwargs
+        weight_coef, active_losses, 
+        **kwargs
     )
     # total_grad = jax.tree.map(lambda x: jnp.nan_to_num(x), total_grad)
     updates, new_state = optimizer.update(total_grad, state, model)
@@ -187,6 +189,11 @@ def main():
             plt.close(fig)
             
         
+        # at the warmup stage, we apply extra weighting to the IC loss
+        # after warmup stage, all losses will be tuned by the GradNorm weights only
+        weight_coef = jnp.array([0.5, 2.0]) \
+            if epoch < configs.warmup_epochs \
+            else jnp.array([1.0] * len(active_losses))
         model, opt_state, total_loss, loss_values, weights, aux_vars = train_step(
             model,
             loss_fn,
@@ -198,6 +205,7 @@ def main():
             configs,
             last_weights,
             configs.alpha_w,
+            weight_coef=weight_coef,
             active_losses=active_losses,
             causal_eps=causal_eps,
         )

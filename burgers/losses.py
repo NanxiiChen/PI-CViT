@@ -169,6 +169,7 @@ class Losses(eqx.Module):
         cfg: Config,
         last_weights: jnp.ndarray,
         alpha_w: float = 1.0,
+        weight_coef: jnp.ndarray = jnp.array([1.0, 1.0]),
         active_losses: Tuple[str] = ("loss_pde", "loss_ic"),
         **kwargs
     ) -> Tuple[Tuple[jnp.ndarray, Tuple[list, jnp.ndarray, dict]], eqx.Module]:
@@ -195,8 +196,8 @@ class Losses(eqx.Module):
             
         weights = self.grad_norm_weights(grads)
         # enlarge ic weight
-        coef = jnp.array([0.5, 2.0])  # pde, ic
-        weights = weights * coef[:len(active_losses)]
+        # coef = jnp.array([0.5, 10.0])  # pde, ic
+        weights = weights * weight_coef[:len(active_losses)]
         weights = alpha_w * weights + (1 - alpha_w) * last_weights
      
         total_loss = jnp.sum(jnp.array(losses) * weights)

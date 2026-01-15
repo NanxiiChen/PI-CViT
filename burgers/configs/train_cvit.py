@@ -69,9 +69,9 @@ class Config:
     save_every = 500
     log_every = 50
     test_every = 500
-    resample_coord_every = 10
+    resample_coord_every = 100
     resample_u_every = 100
-    warmup_epochs = 2000
+    warmup_epochs = 1500
 
     num_u_samples = 32
     num_pde_samples = 2048
