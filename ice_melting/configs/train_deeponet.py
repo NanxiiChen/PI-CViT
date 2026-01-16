@@ -6,8 +6,9 @@ import jax.numpy as jnp
 @dataclass(frozen=True)
 class Config:
     model_name = "deeponet"
-    data_dir = "./data/ice_melting/ellipse"
+    data_dir = "./data/ice_melting/ellipse_refined_dt"
     save_dir = "/root/autodl-tmp/tf-logs/ice_melting/ellipse/deeponet"
+    ckpt = None
     target_ts = jnp.array([0.0, 1.0, 2.0, 3.0])
     spatial_domain = ((-0.5, 0.5), (-0.5, 0.5))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
@@ -45,6 +46,8 @@ class Config:
 
     use_causality = True
     max_grad_norm = 1.0
+    optimizer_name = "adam" # adam. soap
+    alpha_w = 1.0 # moving average weight for loss balancing
 
     causality_params = dict(
         num_chunks=24,
@@ -56,7 +59,7 @@ class Config:
     )
 
     # training hyperparameters
-    num_epochs = 50000
+    num_epochs = 15000
     initial_lr = 5e-4
     decay_every = 100
     decay_rate = 0.95
@@ -64,7 +67,7 @@ class Config:
     save_every = 500
     log_every = 50
     test_every = 500
-    resample_every = 1
+    resample_every = 10
 
     num_u_samples = 16
     num_pde_samples = 2048
