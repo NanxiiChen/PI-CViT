@@ -137,7 +137,7 @@ def main():
         decay_rate=configs.decay_rate,
         staircase=False,
         end_value=configs.min_lr,
-        b1=0.90,
+        b1=0.95,
         b2=0.95,
         precondition_frequency=5,
         weight_decay=1e-6,

@@ -19,7 +19,7 @@ class Config:
     spatial_domain = ((0, lx), (0, ly))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
     active_loss_names = ("pde", "ic",)
-    use_multi_gpu = True
+    use_multi_gpu = True # some times `nan` occurs when using single gpu, possibly due to `hessian` computation instability
 
     Lc = 1.0  # xc = x / Lc
     Tc = 1.0  # tc = t / Tc
@@ -61,7 +61,7 @@ class Config:
     )
 
     # training hyperparameters
-    num_epochs = 15000
+    num_epochs = 20000
     initial_lr = 5e-4
     decay_every = 200
     decay_rate = 0.95

@@ -189,7 +189,7 @@ class Losses(eqx.Module):
                 cfg=cfg,
                 **kwargs
             )
-            # grad = jax.tree.map(lambda g: jnp.nan_to_num(g), grad)
+            grad = jax.tree.map(lambda g: jnp.nan_to_num(g), grad)
             losses.append(loss)
             grads.append(grad)
             aux_vars.update(aux)
