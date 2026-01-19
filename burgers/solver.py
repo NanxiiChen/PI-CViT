@@ -353,8 +353,8 @@ if __name__ == "__main__":
         # 为v分量生成初始条件
         field_v = generate_periodic_ics(Nx, Ny, length_scale, amplitude, seed=seed+i*2+1)
         initial_conditions[i, 1] = field_v
-    x = np.linspace(0, 1, Nx)
-    y = np.linspace(0, 1, Ny)
+    x = np.linspace(0, 1, Nx, endpoint=False)
+    y = np.linspace(0, 1, Ny, endpoint=False)
     print(f"初始条件形状: {initial_conditions.shape}")
     print(f"初始条件值范围: [{np.min(initial_conditions):.6f}, {np.max(initial_conditions):.6f}]")
     
