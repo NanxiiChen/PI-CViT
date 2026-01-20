@@ -42,7 +42,9 @@ class Config:
         num_mlp_layers=2,
         out_dim=2,  # u, v
         layer_norm_eps=1e-5,
-        use_time_film=True,
+        use_time_film=False,
+        film_depth=1,
+        film_act="gelu",
     )
 
     use_causality = True

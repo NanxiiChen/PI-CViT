@@ -56,6 +56,8 @@ class PeriodicCViT(eqx.Module):
         out_dim=2,
         layer_norm_eps=1e-5,
         use_time_film=True,
+        film_depth=2,
+        film_act="silu",
     ):
         key_enc, key_dec = jax.random.split(key)
         
@@ -84,7 +86,9 @@ class PeriodicCViT(eqx.Module):
             enc_emb_dim=emb_dim,
             coord_dim=5, # For periodic spatial features + time dimension
             layer_norm_eps=layer_norm_eps,
-            use_time_film=use_time_film
+            use_time_film=use_time_film,
+            film_depth=film_depth,
+            film_act=film_act,
         )
         
         self.decoder = PeriodicDecoder(original_decoder, lx, ly)

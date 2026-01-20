@@ -366,6 +366,8 @@ class Decoder(eqx.Module):
         coord_dim: int = 3, # Dimension of coordinates + time
         layer_norm_eps: float = 1e-5,
         use_time_film: bool = True,
+        film_depth: int = 2,
+        film_act: str = "silu",
     ):
         k_four, k_proj, k_mlp, *k_blocks = jr.split(key, 3 + dec_depth)
         self.dec_depth = dec_depth
@@ -386,11 +388,11 @@ class Decoder(eqx.Module):
         )
         self.time_film = Mlp(
             key=k_four_t,
-            num_layers=2,
+            num_layers=film_depth,
             hidden_dim=dec_emb_dim,
             out_dim=dec_depth*dec_emb_dim*2,
             in_dim=dec_emb_dim,
-            act="silu"
+            act=film_act
         ) if use_time_film else None
         
         if use_time_film:
@@ -480,6 +482,8 @@ class CViT(eqx.Module):
         out_dim: int = 2,
         layer_norm_eps: float = 1e-5,
         use_time_film: bool = True,
+        film_depth: int = 2,
+        film_act: str = "silu",
     ):
         k_enc, k_dec = jr.split(key)
         
@@ -508,7 +512,9 @@ class CViT(eqx.Module):
             enc_emb_dim=emb_dim,
             coord_dim=3, # (x, y, t)
             layer_norm_eps=layer_norm_eps,
-            use_time_film=use_time_film
+            use_time_film=use_time_film,
+            film_depth=film_depth,
+            film_act=film_act
         )
 
 
