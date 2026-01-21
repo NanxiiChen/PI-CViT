@@ -39,12 +39,12 @@ class BurgersSolver2D:
         # 空间网格
         self.x = np.linspace(0, Lx, Nx, endpoint=False)
         self.y = np.linspace(0, Ly, Ny, endpoint=False)
-        self.X, self.Y = np.meshgrid(self.x, self.y, indexing='xy')
+        self.X, self.Y = np.meshgrid(self.x, self.y, indexing='ij')
         
         # 频域波数
         self.kx = 2 * np.pi * fftfreq(Nx, Lx/Nx)
         self.ky = 2 * np.pi * fftfreq(Ny, Ly/Ny)
-        self.KX, self.KY = np.meshgrid(self.kx, self.ky, indexing='xy')
+        self.KX, self.KY = np.meshgrid(self.kx, self.ky, indexing='ij')
         
         # 拉普拉斯算子 (频域)
         self.laplacian = -(self.KX**2 + self.KY**2)
@@ -302,7 +302,7 @@ def generate_periodic_ics(Nx, Ny, length_scale=0.1, amplitude=0.01, seed=None,
         np.random.seed(seed)
     kx = np.fft.fftfreq(Nx, d=Lx/Nx) * 2 * np.pi
     ky = np.fft.fftfreq(Ny, d=Ly/Ny) * 2 * np.pi
-    KX, KY = np.meshgrid(kx, ky, indexing='xy')
+    KX, KY = np.meshgrid(kx, ky, indexing='ij')
     K2 = KX**2 + KY**2
 
     # Spectral density of RBF kernel
@@ -382,7 +382,7 @@ if __name__ == "__main__":
     # 保存结果
     print("\n步骤3: 保存结果...")
     np.savez('./data/burgers/burgers_solutions.npz',
-             solutions=solutions,
+             solutions=np.transpose(solutions, (0, 1, 2, 4, 3)),  # 转置为 (N, T, Channels, Ny, Nx)
              times=times,
              x=x,
              y=y,
@@ -443,7 +443,7 @@ if __name__ == "__main__":
         axes = axes.ravel()
         kx = 2 * np.pi * fftfreq(Nx, 1/Nx)
         ky = 2 * np.pi * fftfreq(Ny, 1/Ny)
-        KX, KY = np.meshgrid(kx, ky, indexing='xy')
+        KX, KY = np.meshgrid(kx, ky, indexing='ij')
         
         for i, t_idx in enumerate(time_indices):
             u = solutions[0, t_idx, 0, :, :]

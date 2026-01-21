@@ -63,7 +63,7 @@ class FunctionSampler:
         Nx, Ny = grid_size
         kx = jnp.fft.fftfreq(Nx, d=lx / Nx) * 2 * jnp.pi
         ky = jnp.fft.fftfreq(Ny, d=ly / Ny) * 2 * jnp.pi
-        KX, KY = jnp.meshgrid(kx, ky, indexing='xy')
+        KX, KY = jnp.meshgrid(kx, ky, indexing='ij')
         K2 = KX**2 + KY**2
         K2 = K2.at[0, 0].set(1.0)  # avoid division by zero
         self.spectrum = jnp.exp(-0.5 * length_scale**2 * K2)
@@ -83,14 +83,12 @@ class FunctionSampler:
         field = jnp.fft.ifft2(u_hat).real
         field = (field - field.mean()) / field.std()
         field = self.amplitude * field
-        return field
+        return field.T  # convert to [Ny, Nx] for image processing conventions
     
     def resample(
         self,
         key: jax.Array
     ) -> jnp.ndarray: # B, C=2,  Nx, Ny
-        # ! debug: fix key to see if sampling works
-        # key = jax.random.PRNGKey(42)
         keys = jax.random.split(key, 2*self.num_u_samples)
         u_samples = jax.vmap(self.sample_one_u)(keys[:self.num_u_samples]) # B, Nx, Ny
         v_samples = jax.vmap(self.sample_one_u)(keys[self.num_u_samples:]) # B,  Nx, Ny
