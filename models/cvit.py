@@ -32,6 +32,7 @@ def get_1d_sincos_pos_embed(embed_dim, length):
 
 
 def get_2d_sincos_pos_embed(embed_dim, grid_size):
+    # grid_size: (Ny, Nx) --> (Height, Width)
     def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
         assert embed_dim % 2 == 0
         # use half of dimensions to encode grid_h
@@ -42,7 +43,10 @@ def get_2d_sincos_pos_embed(embed_dim, grid_size):
 
     grid_h = jnp.arange(grid_size[0], dtype=jnp.float32)
     grid_w = jnp.arange(grid_size[1], dtype=jnp.float32)
-    grid = jnp.meshgrid(grid_h, grid_w, indexing="xy")
+    # produce grid_hh, grid_ww each with shape (H, W)
+    grid = jnp.meshgrid(grid_h, grid_w, indexing="ij") # 2, H, W
+    # or we can use: which produces grid_ww, grid_hh with the same shape (H, W)
+    # grid = jnp.meshgrid(grid_w, grid_h, indexing="xy") # 2, H, W 
     grid = jnp.stack(grid, axis=0)
 
     grid = grid.reshape([2, 1, grid_size[0], grid_size[1]])
