@@ -43,12 +43,12 @@ class WaveSolver2D:
         # 空间网格
         self.x = np.linspace(0, Lx, Nx, endpoint=False)
         self.y = np.linspace(0, Ly, Ny, endpoint=False)
-        self.X, self.Y = np.meshgrid(self.x, self.y, indexing='xy')
+        self.X, self.Y = np.meshgrid(self.x, self.y, indexing='ij')
         
         # 频域波数
         self.kx = 2 * np.pi * fftfreq(Nx, Lx/Nx)
         self.ky = 2 * np.pi * fftfreq(Ny, Ly/Ny)
-        self.KX, self.KY = np.meshgrid(self.kx, self.ky, indexing='xy')
+        self.KX, self.KY = np.meshgrid(self.kx, self.ky, indexing='ij')
         
         # 拉普拉斯算子 (频域)
         self.laplacian = -(self.KX**2 + self.KY**2)
@@ -298,7 +298,7 @@ def generate_periodic_field(Nx, Ny, length_scale=0.1, amplitude=1.0, seed=None,
     
     kx = np.fft.fftfreq(Nx, d=Lx/Nx) * 2 * np.pi
     ky = np.fft.fftfreq(Ny, d=Ly/Ny) * 2 * np.pi
-    KX, KY = np.meshgrid(kx, ky, indexing='xy')
+    KX, KY = np.meshgrid(kx, ky, indexing='ij')
     K2 = KX**2 + KY**2
 
     # RBF核的谱密度
@@ -349,22 +349,19 @@ if __name__ == "__main__":
     print("\n步骤1: 生成随机初始条件和波速场...")
     initial_conditions = np.zeros((N, Nx, Ny))
     c_fields = np.zeros((N, Nx, Ny))
-    
+
+    x = np.linspace(0, 1, Nx, endpoint=False)
+    y = np.linspace(0, 1, Ny, endpoint=False)
+    X, Y = np.meshgrid(x, y, indexing='ij')
     for i in range(N):
         # 生成初始位移场 u0
         u0 = generate_periodic_field(Nx, Ny, u0_length_scale, u0_amplitude, 
                                      seed=seed+i*2)
         initial_conditions[i] = u0
-        
         # 生成波速场 c(x,y)
-        c_base = generate_periodic_field(Nx, Ny, c_length_scale, c_std, 
-                                         seed=seed+i*2+1)
-        c_fields[i] = c_mean + c_base
-        # 确保波速为正
-        c_fields[i] = np.maximum(c_fields[i], 0.1)
-    
-    x = np.linspace(0, 1, Nx, endpoint=False)
-    y = np.linspace(0, 1, Ny, endpoint=False)
+        c_field = 1 + 0.5 * np.sin(2 * np.pi * X) * np.sin(2 * np.pi * Y)
+        c_fields[i] = c_field
+
     
     print(f"初始条件形状: {initial_conditions.shape}")
     print(f"初始条件值范围: [{np.min(initial_conditions):.6f}, {np.max(initial_conditions):.6f}]")
@@ -397,12 +394,12 @@ if __name__ == "__main__":
     # 保存结果
     print("\n步骤3: 保存结果...")
     np.savez('./data/wave/wave_solutions.npz',
-             solutions=solutions,
+             solutions=np.transpose(solutions, (0, 1, 2, 4, 3)),  # 转置为 (N, T, C, Ny, Nx)
              times=times,
              x=x,
              y=y,
-             c_fields=c_fields,
-             initial_conditions=initial_conditions,
+             c_fields=np.transpose(c_fields, (0, 2, 1)),  # 转置为 (N, Ny, Nx)
+             initial_conditions=np.transpose(initial_conditions, (0, 2, 1)),  # 转置为 (N, Ny, Nx)
              dt=dt)
     print("结果已保存到 wave_solutions.npz")
     
