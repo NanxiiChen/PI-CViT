@@ -35,16 +35,16 @@ class Config:
         num_heads=8,
         ## model:decoder
         fourier_freq=2.0,
-        dec_depth=2,
-        dec_num_heads=8,
-        dec_emb_dim=256,  # two times of ffe hidden dim (sin, cos)
+        dec_depth=4,
+        dec_num_heads=12,
+        dec_emb_dim=384,  # two times of ffe hidden dim (sin, cos)
         dec_mlp_act="gelu",
         num_mlp_layers=2,
         out_dim=1,  # u
         layer_norm_eps=1e-5,
-        use_time_film=False,
+        use_time_film=True,
         film_depth=2,
-        film_act="gelu",
+        film_act="silu",
     )
 
     use_causality = True
@@ -56,16 +56,16 @@ class Config:
     causality_params = dict(
         num_chunks=24,
         initial_eps=1e-2,
-        max_eps=5.0,
+        max_eps=10.0,
         step_size=5.0,
         min_mean_weight=0.2,
         max_min_weight=0.99,
     )
 
     # training hyperparameters
-    num_epochs = 20000
+    num_epochs = 50000
     initial_lr = 5e-4
-    decay_every = 200
+    decay_every = 500
     decay_rate = 0.95
     min_lr = 1e-5
     save_every = 500
