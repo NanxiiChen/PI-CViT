@@ -1,6 +1,5 @@
 from typing import Tuple, Union, Dict
 
-import re
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -39,10 +38,11 @@ class Losses(eqx.Module):
         u_j * d(u_i)/d(x_j) + d(p)/d(x_i) - nu * d^2(u_i)/d(x_j)^2 = 0
         
         Args:
-        u: shape (1,) representing the normalised `nu`
+        u: shape (1,) representing normalized Reynolds number `Re`
         """
         
-        nu = u[0] * cfg.nu_scale  # denormalize
+        re_val = cfg.denormalize_re(u[0])  # ()
+        nu = 1.0 / re_val  # ()
         Lc = cfg.Lc
         
         
@@ -63,7 +63,8 @@ class Losses(eqx.Module):
             nabla_u = jax.jacrev(sol_u_single, argnums=0)(xi)  # (2, 2)
             # nabla_p: [p_x, p_y]
             nabla_p = jax.grad(sol_p_single, argnums=0)(xi)  # (2,)
-            hess_u = jax.hessian(sol_u_single, argnums=0)(xi)  # (2, 2, 2)
+            # hess_u = jax.hessian(sol_u_single, argnums=0)(xi)  # (2, 2, 2)
+            hess_u = jax.jacfwd(jax.jacrev(sol_u_single, argnums=0), argnums=0)(xi)  # (2, 2, 2)
             laplacian_u = jnp.trace(hess_u, axis1=1, axis2=2)  # (2,)
             
             return u_sol, nabla_u, nabla_p, laplacian_u
@@ -77,7 +78,7 @@ class Losses(eqx.Module):
         convective_term = jnp.einsum('nj,nij->ni', u_sol, nabla_u)  # (N_query, 2)
         pde_residual = convective_term / Lc + nabla_p / Lc - nu * laplacian_u / (Lc**2)  # (N_query, 2)
         
-        return pde_residual
+        return pde_residual, re_val
     
     def loss_momentum(
         self,
@@ -91,14 +92,16 @@ class Losses(eqx.Module):
         Compute the momentum equation residual loss.
         """
         
-        residuals = jax.vmap(
+        residuals, re_vals = jax.vmap(
             self.residual_momentum,
             in_axes=(None, 0, None, None),
         )(model, u, x, cfg)  # (N_query, 2)
     
         loss = jnp.mean(jnp.square(residuals)) # ()
         
-        return loss, {}
+        return loss, {
+            "re_vals": re_vals,
+        }
     
     def residual_continuity(
         self,
@@ -162,7 +165,7 @@ class Losses(eqx.Module):
         self,
         model: Union[DeepONet, CViT],
         u: jnp.ndarray,
-        x_bc: jnp.ndarray,
+        x: jnp.ndarray,
         cfg: Config,
         **kwargs
     ) -> jnp.ndarray:
@@ -175,10 +178,10 @@ class Losses(eqx.Module):
         
         sol = jax.vmap(
             model, in_axes=(0, None)
-        )(u, x_bc)  # (N_bc, 3)
+        )(u, x)  # (N_bc, 3)
         
-        loss_u = jnp.mean(jnp.square(sol[:, 0]))  # ()
-        loss_v = jnp.mean(jnp.square(sol[:, 1]))  # ()
+        loss_u = jnp.mean(jnp.square(sol[:, :, 0]))  # ()
+        loss_v = jnp.mean(jnp.square(sol[:, :, 1]))  # ()
         
         return loss_u + loss_v, {}
     
@@ -186,7 +189,7 @@ class Losses(eqx.Module):
         self,
         model: Union[DeepONet, CViT],
         u: jnp.ndarray,
-        x_lid: jnp.ndarray,
+        x: jnp.ndarray,
         cfg: Config,
     ):
         """
@@ -198,12 +201,32 @@ class Losses(eqx.Module):
         
         sol = jax.vmap(
             model, in_axes=(0, None)
-        )(u, x_lid)  # (N_bc, 3)
+        )(u, x)  # (N_bc, N_bc, 3)
         
         ref = jnp.array([1.0, 0.0])  # (2,)
-        loss = jnp.mean(jnp.square(sol[:, :2] - ref[None, :]))  # ()
+        loss = jnp.mean(jnp.square(sol[:, :, 0:2] 
+                                   - ref[None, None, :]))  # ()
         
         return loss, {}
+    
+    def loss_bc_pressure(
+        self,
+        model: Union[DeepONet, CViT],
+        u: jnp.ndarray,
+        cfg: Config,
+        **kwargs
+    ) -> jnp.ndarray:
+        """
+        fix (0,0) location pressure to be zero
+        """
+        coords = jnp.array([[0.0, 0.0]])  # (1, 2)
+        sol = jax.vmap(
+            model, in_axes=(0, None)
+        )(u, coords)  # (B, N_coords, 3)
+        loss = jnp.mean(jnp.square(sol[:, :, 2]))  # ()
+        return loss, {}
+        
+
     
     
     def loss_fn(
@@ -297,8 +320,35 @@ if __name__ == "__main__":
     x_pde = jax.random.uniform(data_key[1], (1024, 2), minval=0.0, maxval=1.0)  # (1024, 2)
     losses = Losses()
     cfg = Config()
-    residuals = jax.vmap(
-        losses.residual_momentum,
-        in_axes=(None, 0, None, None),
+    # residuals = jax.vmap(
+    #     losses.residual_momentum,
+    #     in_axes=(None, 0, None, None),
+    # )
+    # print(residuals(model, u, x_pde, cfg).shape)  # (16, 1024, 2)
+    
+    # residuals_c = jax.vmap(
+    #     losses.residual_continuity,
+    #     in_axes=(None, 0, None, None),
+    # )
+    # print(residuals_c(model, u, x_pde, cfg).shape)  # (16, 1024)
+    # loss_bc_walls = losses.loss_bc_walls(
+    #     model,
+    #     u,
+    #     x_pde,
+    #     cfg,
+    # )
+    # print(loss_bc_walls[0])  # ()
+    # loss_bc_lid = losses.loss_bc_lid(
+    #     model,
+    #     u,
+    #     x_pde,
+    #     cfg,
+    # )
+    # print(loss_bc_lid[0])  # ()
+    
+    loss_bc_pressure = losses.loss_bc_pressure(
+        model,
+        u,
+        cfg,
     )
-    print(residuals(model, u, x_pde, cfg).shape)  # (16, 1024, 2)
+    print(loss_bc_pressure[0])  # ()

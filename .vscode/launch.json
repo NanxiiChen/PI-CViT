@@ -47,5 +47,17 @@
                 "train_cvit"
             ]
         },
+        {
+            "name": "Python 调试程序: ldc",
+            "type": "debugpy",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "module": "ldc.train",
+            "args": [
+                "--configs",
+                "train_cvit"
+            ]
+        },
     ]
 }

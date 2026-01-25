@@ -19,7 +19,7 @@ class CoordSampler:
         ),
         num_pde_samples: int = 1024,
         num_bc_samples: int = 256,
-        eps: float = 1e-2,
+        eps: float = 1e-3,
     ):
         self.spatial_domain = spatial_domain
         self.num_pde_samples = num_pde_samples
@@ -37,10 +37,15 @@ class CoordSampler:
         pde_points = lhs_sampling(mins, maxs, 
                                   self.num_pde_samples, key)
         
-        # filter out the top-right corner
-        mask = ~((pde_points[:, 0] > x_max - self.eps) & 
-                 (pde_points[:, 1] > y_max - self.eps))
-        pde_points = pde_points[mask]
+        # replace the filtered points with safe points
+        safe_point = jnp.array([0.5 * (x_min + x_max), 0.5 * (y_min + y_max)],
+                               dtype=pde_points.dtype)
+        mask_invalid = ((pde_points[:, 0] > x_max - self.eps) 
+                        & (pde_points[:, 1] > y_max - self.eps))
+        mask_valid = ~mask_invalid
+        pde_points = jnp.where(
+            mask_valid[:, None], pde_points, safe_point[None, :]
+        )
         
         return pde_points
     
@@ -83,7 +88,7 @@ class CoordSampler:
         bc_points = jnp.concatenate([left_wall, bottom_wall, right_wall], axis=0)
         return bc_points
     
-    def sample_bc_top(self, key: jax.Array) -> jnp.ndarray:
+    def sample_bc_lid(self, key: jax.Array) -> jnp.ndarray:
         """Sample points on the top wall with non-slip boundary condition."""
         x_min, x_max = self.spatial_domain[0]
         y_min, y_max = self.spatial_domain[1]
@@ -106,7 +111,7 @@ class CoordSampler:
         
         pde_samples = self.sample_pde(key)
         bc_samples_walls = self.sample_bc_walls(key)
-        bc_samples_lid = self.sample_bc_top(key)
+        bc_samples_lid = self.sample_bc_lid(key)
         
         return {
             "pde": pde_samples,
@@ -181,7 +186,7 @@ if __name__ == "__main__":
         s=5, c='red', label='BC Walls'
     )
     ax.scatter(
-        coords_samples["bc_top"][:, 0], coords_samples["bc_top"][:, 1], 
+        coords_samples["bc_lid"][:, 0], coords_samples["bc_lid"][:, 1], 
         s=5, c='green', label='BC Top'
     )
     ax.set_title('Sampled Coordinates')

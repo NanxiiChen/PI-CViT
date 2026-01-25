@@ -123,20 +123,22 @@ class CrossAttnBlock(eqx.Module):
 class Encoder(eqx.Module):
     mlp: Mlp
     act: Callable
+    num_tokens: int = 4
     
     def __init__(
         self,
         key: jr.PRNGKey,
         in_channels: int = 1, # for constant `nu` coefficient
         depth: int = 2,
+        num_tokens: int = 4,
         emb_dim: int = 256,
         act: str = "gelu",
     ):
         self.mlp = Mlp(
             key=key,
             num_layers=depth,
-            hidden_dim=emb_dim,
-            out_dim=emb_dim,
+            hidden_dim=emb_dim * num_tokens,
+            out_dim=emb_dim * num_tokens,
             in_dim=in_channels,
             act=act
         )
@@ -147,7 +149,8 @@ class Encoder(eqx.Module):
         # u: (1,)
         u = self.mlp(u)  # (emb_dim,)
         u = self.act(u)
-        u = jnp.expand_dims(u, axis=0)  # (1, emb_dim)
+        # u = jnp.expand_dims(u, axis=0)  # (1, emb_dim)
+        u = u.reshape(self.num_tokens, u.shape[-1] // self.num_tokens)  # (..., num_tokens, emb_dim)
         return u
 
 
@@ -255,6 +258,7 @@ class CViT(eqx.Module):
         in_channels: int = 1,
         emb_dim: int = 768,
         depth: int = 12,
+        num_tokens: int = 4,
         mlp_ratio: int = 4,
         fourier_freq: float = 1.0,
         dec_depth: int = 2,
@@ -271,6 +275,7 @@ class CViT(eqx.Module):
             key=k_enc,
             in_channels=in_channels,
             depth=depth,
+            num_tokens=num_tokens,
             emb_dim=emb_dim,
             act="gelu"
         )
@@ -286,18 +291,18 @@ class CViT(eqx.Module):
             out_dim=out_dim,
             num_mlp_layers=num_mlp_layers,
             enc_emb_dim=emb_dim,
-            coord_dim=3, # (x, y, t)
+            coord_dim=2, # (x, y)
             layer_norm_eps=layer_norm_eps,
         )
 
 
-    def __call__(self, u, x, t):
+    def __call__(self, u, x):
         # u: (C, H, W)
         # x: (N_query, spatial_dim)
         # t: (N_query, 1)
         
         enc_out = self.encoder(u) # (N_patch, emb_dim)
-        dec_out = self.decoder(enc_out, x, t) # (N_query, out_dim)
+        dec_out = self.decoder(enc_out, x) # (N_query, out_dim)
 
         return dec_out # (N_query, out_dim)
 
