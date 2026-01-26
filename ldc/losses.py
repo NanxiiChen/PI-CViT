@@ -11,10 +11,6 @@ from models.deeponet import DeepONet
 from models.causal import CausalWeightor
 from .configs.train_cvit import Config
 
-
-
-
-
 class Losses(eqx.Module):
     causal_weightor: CausalWeightor = None
     
@@ -95,8 +91,7 @@ class Losses(eqx.Module):
         residuals, re_vals = jax.vmap(
             self.residual_momentum,
             in_axes=(None, 0, None, None),
-        )(model, u, x, cfg)  # (N_query, 2)
-    
+        )(model, u, x, cfg)  # (B, N_query, 2)
         loss = jnp.mean(jnp.square(residuals)) # ()
         
         return loss, {
@@ -156,7 +151,7 @@ class Losses(eqx.Module):
         residuals = jax.vmap(
             self.residual_continuity,
             in_axes=(None, 0, None, None),
-        )(model, u, x, cfg)  # (N_query,)
+        )(model, u, x, cfg)  # (B, N_query,)
         loss = jnp.mean(jnp.square(residuals))  # ()
         
         return loss, {}
@@ -178,7 +173,7 @@ class Losses(eqx.Module):
         
         sol = jax.vmap(
             model, in_axes=(0, None)
-        )(u, x)  # (N_bc, 3)
+        )(u, x)  # (B, N_bc, 3)
         
         loss_u = jnp.mean(jnp.square(sol[:, :, 0]))  # ()
         loss_v = jnp.mean(jnp.square(sol[:, :, 1]))  # ()
@@ -201,7 +196,7 @@ class Losses(eqx.Module):
         
         sol = jax.vmap(
             model, in_axes=(0, None)
-        )(u, x)  # (N_bc, N_bc, 3)
+        )(u, x)  # (B, N_bc, 3)
         
         ref = jnp.array([1.0, 0.0])  # (2,)
         loss = jnp.mean(jnp.square(sol[:, :, 0:2] 

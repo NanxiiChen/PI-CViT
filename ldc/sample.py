@@ -19,7 +19,7 @@ class CoordSampler:
         ),
         num_pde_samples: int = 1024,
         num_bc_samples: int = 256,
-        eps: float = 1e-3,
+        eps: float = 2e-2,
     ):
         self.spatial_domain = spatial_domain
         self.num_pde_samples = num_pde_samples

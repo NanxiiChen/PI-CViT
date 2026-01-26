@@ -69,6 +69,16 @@ def main():
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
     
+    if configs.use_multi_gpu:
+        devices = jax.devices()
+        num_devices = len(devices)
+        print(f"Number of devices: {num_devices}, devices: {devices}")
+        mesh = Mesh(devices, axis_names=("batch",))
+        # coords and model are replicated across devices
+        replicated_sharding = NamedSharding(mesh, PartitionSpec())
+        # split Re (`u` variables) data across devices
+        # u shape: (B, 1)
+        data_sharding = data_sharding = NamedSharding(mesh, PartitionSpec("batch", None))
     
     func_sampler = FunctionSampler(
         num_u_samples=configs.num_u_samples,
@@ -93,6 +103,9 @@ def main():
         print(f"Load model from checkpoint: {ckpt_path}")
         model = eqx.tree_deserialise_leaves(ckpt_path, model)
     
+    if configs.use_multi_gpu:
+        model = eqx.filter_shard(model, replicated_sharding)
+        
     losses = Losses()
     loss_fn = losses.loss_fn
     active_loss_names = configs.active_loss_names
@@ -114,6 +127,9 @@ def main():
  
     opt_state = optimizer.init(eqx.filter(model, eqx.is_array))
     last_weights = jnp.array([1.0] * len(active_losses)) / len(active_losses)
+    if configs.use_multi_gpu:
+        opt_state = eqx.filter_shard(opt_state, replicated_sharding)
+        last_weights = jax.device_put(last_weights, replicated_sharding)
     
     epochs = configs.num_epochs
     batch_u = None
@@ -122,26 +138,6 @@ def main():
         "bc_walls": None,
         "bc_lid": None
     }
-    
-    # def compute_reynolds_range(
-    #     epoch,
-    #     initial_range,
-    #     max_reynolds,
-    #     change_every,
-    #     warm_up_epochs,
-    # ):
-    #     min_re, init_max_re = initial_range
-
-    #     if epoch < warm_up_epochs:
-    #         return initial_range
-
-    #     # 增长次数
-    #     times = (epoch - warm_up_epochs) // change_every + 1
-
-    #     # 始终基于 initial_max，而不是 last_range
-    #     new_max_re = min(max_reynolds, init_max_re * (2 ** times))
-
-    #     return (min_re, new_max_re)
     
     def compute_reynolds_range_linear(
         epoch,
@@ -168,17 +164,8 @@ def main():
 
         return (min_re, int(new_max_re))
         
-    # initial_re_range = configs.re_range_initial  # e.g. (100, 200)
-    # max_reynolds = configs.re_range[1]
-    # change_every = configs.change_re_every
     for epoch in range(0, epochs):
-        # cur_reynolds_range = compute_reynolds_range(
-        #     epoch,
-        #     initial_re_range,
-        #     max_reynolds,
-        #     change_every,
-        #     configs.warmup_epochs
-        # )
+
         cur_reynolds_range = compute_reynolds_range_linear(
             epoch,
             configs.re_range_initial,  # (100, 200)
@@ -195,6 +182,10 @@ def main():
         if epoch % configs.resample_coord_every == 0 or epoch >= configs.warmup_epochs:
             subkey, key = jax.random.split(key)
             coords = coord_sampler.resample(subkey)
+            if configs.use_multi_gpu:
+                coords = jax.tree.map(
+                    lambda x: jax.device_put(x, replicated_sharding), coords
+                ) # put coords to devices
             
         if epoch % configs.resample_u_every == 0 or epoch >= configs.warmup_epochs:
             subkey, key = jax.random.split(key)
@@ -202,6 +193,8 @@ def main():
                 subkey,
                 u_range=cur_reynolds_range_normed,
             )
+            if configs.use_multi_gpu:
+                batch_u = jax.device_put(batch_u, data_sharding)
             # print("Current Reynolds number range:", cur_reynolds_range)
             # print("Resampled training data, min u: Epoch", epoch,   
             #       jnp.min(configs.denormalize_re(batch_u)), 
@@ -218,8 +211,8 @@ def main():
             writer.add_scalar("eval/l2_error", l2, epoch)
             plt.close(fig)
             
-        weight_coef = jnp.array([1.0, 1.0, 2.0, 2.0, 1.0]) \
-            if epoch < configs.warmup_epochs else jnp.array([1.0]*5)
+        weight_coef = jnp.array([1.0, 1.0, 3.0, 3.0, 1.0]) \
+            if epoch < configs.warmup_epochs else jnp.array([1.0]*len(active_losses))
         model, opt_state, total_loss, loss_values, weights, aux_vars = train_step(
             model,
             loss_fn,

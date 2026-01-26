@@ -7,7 +7,7 @@ class Config:
     model_name = "cvit"
     data_dir = "./data/ldc"
     save_dir = "/root/autodl-tmp/tf-logs/ldc/cvit"
-    # ckpt = save_dir + "/20260115-204856/model_epoch_3000.eqx"
+    # ckpt = save_dir + "/baseline-0126-mlplayer3/model_epoch_23000.eqx"
     ckpt = None
     lx = 1.0
     ly = 1.0
@@ -57,20 +57,20 @@ class Config:
         dec_num_heads=8,
         dec_emb_dim=256,  # two times of ffe hidden dim (sin, cos)
         dec_mlp_act="gelu",
-        num_mlp_layers=4,
+        num_mlp_layers=3,
         out_dim=3,  # u, v, p
         layer_norm_eps=1e-5,
     )
 
     use_causality = True
     max_grad_norm = 1.0
-    optimizer_name = "soap" # adam. soap
+    optimizer_name = "soap" # adam not work here
     alpha_w = 1.0 # moving average weight for loss balancing
 
 
     # training hyperparameters
     num_epochs = 50000
-    initial_lr = 5e-4
+    initial_lr = 5e-4 if ckpt is None else 1e-5
     decay_every = 500
     decay_rate = 0.95
     min_lr = 1e-5
@@ -79,8 +79,12 @@ class Config:
     test_every = 200
     resample_coord_every = 50
     resample_u_every = 50
-    warmup_epochs = 1000
-    reach_max_re_epoch = 10000
+    if ckpt is None:
+        warmup_epochs = 1000
+        reach_max_re_epoch = 10000
+    else:
+        warmup_epochs = 0
+        reach_max_re_epoch = 1
 
     num_u_samples = 32
     num_pde_samples = 2048

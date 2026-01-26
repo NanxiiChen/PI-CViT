@@ -87,7 +87,6 @@ def evaluate_model(
     sols = rearrange(sols, "B (H W) C -> B C H W", H=int(H), W=int(W))  # (B, 3, H, W)
     u = sols[:, 0, :, :]  # (B, H, W)
     v = sols[:, 1, :, :]  # (B, H, W)
-    p = sols[:, 2, :, :]  # (B, H, W)
     speed = jnp.sqrt(u**2 + v**2)  # (B, H, W)
     
     fig, axes = plt.subplots(
@@ -96,8 +95,8 @@ def evaluate_model(
         figsize=(1.5 * B, 5),
         subplot_kw={"aspect": "equal",},
     )
-    diffs = jnp.zeros_like(speed)
     
+    total_l2 = 0
     for i, this_reynold in enumerate(target_reynold):
         ax = axes[0, i]
         ax.set_axis_off()
@@ -128,7 +127,6 @@ def evaluate_model(
         ax = axes[2, i]
         ax.set_axis_off()
         diff = jnp.abs(ref_speed - speed[i])
-        diffs = diffs.at[i].set(diff)
         diff_cont = ax.contourf(X, Y, diff, levels=50, cmap="viridis",)
         colorbar = fig.colorbar(
             diff_cont, ax=ax, fraction=0.046, pad=0.04, orientation="horizontal",
@@ -152,17 +150,17 @@ def evaluate_model(
                 rotation=90, ha="center", va="center",
             )
             
-    l2 = jnp.sqrt(jnp.mean(diffs**2, axis=(1, 2))) / jnp.mean(speed, axis=(1, 2))
-    l2 = jnp.mean(l2)
+        this_l2 = jnp.sqrt(jnp.mean(diff**2)) / jnp.sqrt(jnp.mean(ref_speed**2))
+        total_l2 += this_l2 / B
     fig.subplots_adjust(
         left=0.03, right=0.97, top=0.95, bottom=0.03, hspace=0.1, wspace=0.1
     )
     fig.suptitle(
-        f"Rel. L2 Error: {l2:.2e}",
+        f"Rel. L2 Error: {total_l2:.2e}",
         y=1.02,
     )
     
-    return fig, l2
+    return fig, total_l2
             
 
         
