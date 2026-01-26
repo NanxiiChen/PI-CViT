@@ -50,14 +50,14 @@ class Config:
         in_channels=1,  # Re number only
         emb_dim=256,  # emb_dim for encoder
         depth=2,
-        num_tokens=4,
+        num_tokens=1,
         ## model:decoder
         fourier_freq=2.0,
         dec_depth=2,
         dec_num_heads=8,
         dec_emb_dim=256,  # two times of ffe hidden dim (sin, cos)
         dec_mlp_act="gelu",
-        num_mlp_layers=3,
+        num_mlp_layers=2,
         out_dim=3,  # u, v, p
         layer_norm_eps=1e-5,
     )
@@ -81,7 +81,7 @@ class Config:
     resample_u_every = 50
     if ckpt is None:
         warmup_epochs = 1000
-        reach_max_re_epoch = 10000
+        reach_max_re_epoch = 5000
     else:
         warmup_epochs = 0
         reach_max_re_epoch = 1

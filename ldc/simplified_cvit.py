@@ -123,7 +123,7 @@ class CrossAttnBlock(eqx.Module):
 class Encoder(eqx.Module):
     mlp: Mlp
     act: Callable
-    num_tokens: int = 4
+    num_tokens: int
     
     def __init__(
         self,
@@ -143,6 +143,7 @@ class Encoder(eqx.Module):
             act=act
         )
         self.act = getattr(jax.nn, act)
+        self.num_tokens = num_tokens
         
 
     def __call__(self, u):

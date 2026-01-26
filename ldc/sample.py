@@ -138,8 +138,12 @@ class FunctionSampler:
         # from small to large to stabilize training.
         # u represents the `nu` coefficient here, which is a constant scalar.
         u_min, u_max = u_range
-        u_samples = jax.random.uniform(
-            key, (self.num_u_samples, 1), minval=u_min, maxval=u_max
+        # u_samples = jax.random.uniform(
+        #     key, (self.num_u_samples, 1), minval=u_min, maxval=u_max
+        # )
+        u_samples = lhs_sampling(
+            jnp.array([u_min]), jnp.array([u_max]), 
+            self.num_u_samples, key
         )
         return u_samples
     
