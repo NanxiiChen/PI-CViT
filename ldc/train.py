@@ -16,6 +16,7 @@ matplotlib.use("Agg")
 from tensorboardX import SummaryWriter
 
 from models import get_optimizer
+from models.soap import soap
 from models.causal import CausalWeightor
 
 from .configs import load_configs
@@ -49,7 +50,8 @@ def train_step(
         **kwargs
     )
     total_grad = jax.tree.map(lambda x: jnp.nan_to_num(x), total_grad)
-    updates, new_state = optimizer.update(total_grad, state, model)
+    params = eqx.filter(model, eqx.is_array)
+    updates, new_state = optimizer.update(total_grad, state, params, is_training=True,)
     new_model = eqx.apply_updates(model, updates)
     return new_model, new_state, total_loss, losses, weights, aux_vars
 
@@ -111,20 +113,37 @@ def main():
     active_loss_names = configs.active_loss_names
     active_losses = tuple(f"loss_{name}" for name in active_loss_names)
 
-    optimizer = get_optimizer(
-        optimizer_name=configs.optimizer_name,
-        init_value=configs.initial_lr,
-        transition_steps=configs.decay_every,
-        decay_rate=configs.decay_rate,
-        staircase=False,
-        end_value=configs.min_lr,
-        b1=0.95,
-        b2=0.95,
-        precondition_frequency=5,
-        weight_decay=1e-6,
-        max_grad_norm=configs.max_grad_norm,
+    # optimizer = get_optimizer(
+    #     optimizer_name=configs.optimizer_name,
+    #     init_value=configs.initial_lr,
+    #     transition_steps=configs.decay_every,
+    #     decay_rate=configs.decay_rate,
+    #     staircase=False,
+    #     end_value=configs.min_lr,
+    #     b1=0.95,
+    #     b2=0.95,
+    #     precondition_frequency=5,
+    #     weight_decay=1e-6,
+    #     max_grad_norm=configs.max_grad_norm,
+    # )
+    base_tx = optax.chain(
+        optax.clip_by_global_norm(configs.max_grad_norm),
+        soap(
+            learning_rate=configs.initial_lr,
+            b1=0.95,
+            b2=0.95,
+            precondition_frequency=5,
+        )
     )
- 
+
+    optimizer = optax.contrib.schedule_free(
+        base_tx,
+        learning_rate=configs.initial_lr,
+        b1=0.95,
+    )
+    
+    
+    
     opt_state = optimizer.init(eqx.filter(model, eqx.is_array))
     last_weights = jnp.array([1.0] * len(active_losses)) / len(active_losses)
     if configs.use_multi_gpu:

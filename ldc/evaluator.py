@@ -66,15 +66,16 @@ def evaluate_model(
     **kwargs,
 ):
     Nx, Ny = cfg.Nx, cfg.Ny
-    x = jnp.linspace(0, 1, Nx)
-    y = jnp.linspace(0, 1, Ny)
-    X, Y = jnp.meshgrid(x, y, indexing="xy") # (Ny, Nx)
+    data = jnp.load(f"{data_dir}/ldc_solutions_Re50-1000_N{Nx}.npz")
+    X = data["X"]  # (Ny, Nx)
+    Y = data["Y"]  # (Ny, Nx)
     coords = jnp.stack([
         X.reshape(-1),
         Y.reshape(-1)
     ], axis=-1)  # (Ny*Nx, 2)
-    target_reynold = jnp.array(target_reynold) # reynolds number
+    target_reynold = data["Re"]
     target_reynold = target_reynold.reshape(-1, 1)  # (B, 1)
+    ref_data = data["data"] # B, 2, H, W
     
     target_reynold_normed = cfg.normalize_re(target_reynold)
     sols = jax.vmap(
@@ -85,10 +86,16 @@ def evaluate_model(
     H = Ny
     W = Nx
     sols = rearrange(sols, "B (H W) C -> B C H W", H=int(H), W=int(W))  # (B, 3, H, W)
-    u = sols[:, 0, :, :]  # (B, H, W)
-    v = sols[:, 1, :, :]  # (B, H, W)
-    speed = jnp.sqrt(u**2 + v**2)  # (B, H, W)
-    
+    sols = sols[:, :2, ...] # (B, 2, H, W)
+    if kwargs.get("mask_corners", True):
+        eps = 1e-2
+        mask = (X > 1 - eps) & (Y > 1 - eps) | (X < eps) & (Y > 1 - eps)
+        sols = jnp.where(mask[None, None, :, :], 0.0, sols)
+        ref_data = jnp.where(mask[None, None, :, :], 0.0, ref_data)
+    # normed on spation points
+    l2 = jnp.sqrt(jnp.mean((sols - ref_data)**2, axis=(-1, -2))) / jnp.sqrt(jnp.mean(ref_data**2, axis=(-1, -2))) 
+    total_l2 = jnp.mean(l2) # averaged on batch and channels
+        
     fig, axes = plt.subplots(
         nrows=3,
         ncols=B,
@@ -96,16 +103,10 @@ def evaluate_model(
         subplot_kw={"aspect": "equal",},
     )
     
-    total_l2 = 0
     for i, this_reynold in enumerate(target_reynold):
         ax = axes[0, i]
         ax.set_axis_off()
-        ref_data = jnp.load(
-            f"{data_dir}/flow_fields_Re{int(this_reynold[0])}_N128.npz"
-        )
-        ref_u = ref_data["u"]  # (H, W)
-        ref_v = ref_data["v"]  # (H, W)
-        ref_speed = jnp.sqrt(ref_u**2 + ref_v**2)  # (H, W)
+        ref_speed = jnp.sqrt(ref_data[i, 0, :, :]**2 + ref_data[i, 1, :, :]**2)
         
         ax.contourf(
             X, Y, ref_speed, levels=50, cmap="RdBu_r",
@@ -119,14 +120,15 @@ def evaluate_model(
         
         ax = axes[1, i]
         ax.set_axis_off()
+        speed = jnp.sqrt(sols[i, 0, :, :]**2 + sols[i, 1, :, :]**2)
         ax.contourf(
-            X, Y, speed[i], levels=50, cmap="RdBu_r",
+            X, Y, speed, levels=50, cmap="RdBu_r",
             vmin=0, vmax=1.0
         )
         
         ax = axes[2, i]
         ax.set_axis_off()
-        diff = jnp.abs(ref_speed - speed[i])
+        diff = jnp.abs(ref_speed - speed)
         diff_cont = ax.contourf(X, Y, diff, levels=50, cmap="viridis",)
         colorbar = fig.colorbar(
             diff_cont, ax=ax, fraction=0.046, pad=0.04, orientation="horizontal",
@@ -150,8 +152,6 @@ def evaluate_model(
                 rotation=90, ha="center", va="center",
             )
             
-        this_l2 = jnp.sqrt(jnp.mean(diff**2)) / jnp.sqrt(jnp.mean(ref_speed**2))
-        total_l2 += this_l2 / B
     fig.subplots_adjust(
         left=0.03, right=0.97, top=0.95, bottom=0.03, hspace=0.1, wspace=0.1
     )

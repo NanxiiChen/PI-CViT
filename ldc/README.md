@@ -24,3 +24,6 @@ where \(\psi\) is the streamfunction and \(\omega\) is the vorticity. The bounda
 \[
     \psi = 0 \quad \text{on all walls}
 \]
+
+
+The numerical solver is forked from `https://github.com/KartikeyGangwar/lid-driven-cavity-cfd/tree/main`.

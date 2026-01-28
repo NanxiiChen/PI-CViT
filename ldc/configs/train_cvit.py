@@ -11,20 +11,19 @@ class Config:
     ckpt = None
     lx = 1.0
     ly = 1.0
-    Nx = 128  # number of spatial points in x
-    Ny = 128  # number of spatial points in y
+    Nx = 256  # number of spatial points in x
+    Ny = 256  # number of spatial points in y
     spatial_domain = ((0, lx), (0, ly))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
     active_loss_names = ("momentum", "continuity", "bc_walls", "bc_lid", "bc_pressure")
     use_multi_gpu = True # some times `nan` occurs when using single gpu, possibly due to `hessian` computation instability
 
-    re_range = (100, 2000)  # reynolds number range for data generation
+    re_range = (50, 1000)  # reynolds number range for data generation
     # ! sample in log space for better generalization
     # ! use log(Re) in neural network input
     re_range_log = (jnp.log(re_range[0]), jnp.log(re_range[1])) 
-    re_range_initial = (100, 200) # start from lower Re for better convergence
-    change_re_every = 1000  # change Re every N epochs during training
-    evaluate_on_re = [100, 200, 500, 1000, 2000]  # Re numbers for evaluation
+    re_range_initial = (50, 100) # start from lower Re for better convergence
+    evaluate_on_re = [50, 100, 200, 500, 1000]  # Re numbers for evaluation
     
     @classmethod
     def normalize_re(cls, re):
@@ -76,7 +75,7 @@ class Config:
     min_lr = 1e-5
     save_every = 1000
     log_every = 50
-    test_every = 200
+    test_every = 500
     resample_coord_every = 50
     resample_u_every = 50
     if ckpt is None:
