@@ -59,5 +59,17 @@
                 "train_cvit"
             ]
         },
+        {
+            "name": "Python 调试程序: swe",
+            "type": "debugpy",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "module": "swe.losses",
+            "args": [
+                "--configs",
+                "train_cvit"
+            ]
+        },
     ]
 }
