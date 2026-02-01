@@ -31,7 +31,16 @@ class CoordSampler:
 
         mins = jnp.array([x_min, y_min, t_min])
         maxs = jnp.array([x_max, y_max, t_max])
-        pde_points = lhs_sampling(mins, maxs, self.num_pde_samples, key)
+        maxs_time_refined = jnp.array([x_max, y_max, t_min + 0.1 * (t_max - t_min)])
+        k1, k2 = jax.random.split(key)
+        pde_points = lhs_sampling(mins, maxs, self.num_pde_samples, k1)
+        pde_points_initial_time_refined = lhs_sampling(
+            mins,
+            maxs_time_refined,
+            self.num_pde_samples // 2,
+            k2
+        )
+        pde_points = jnp.concatenate([pde_points, pde_points_initial_time_refined], axis=0)
 
         return pde_points
     

@@ -59,10 +59,11 @@ class Losses(eqx.Module):
         def compute_pde_terms(xi, ti):
             # nabla_u: (2, 2) --> [[du/dx, du/dy],
             #                      [dv/dx, dv/dy]]
-            nabla_u = jax.jacrev(sol_u_single, argnums=0)(xi, ti) # (2, 2)
+            nabla_u = jax.jacfwd(sol_u_single, argnums=0)(xi, ti) # (2, 2)
             div_v = jnp.trace(nabla_u)  # du/dx + dv/dy, ()
             h_t = jax.grad(sol_h_single, argnums=1)(xi, ti)  # (1，)
-            return h_t[0], div_v
+            h_t = jnp.squeeze(h_t, axis=-1)  # ()
+            return h_t, div_v
         
         h_t, div_v = jax.vmap(compute_pde_terms, 
                               in_axes=(0, 0))(x, t)  # (N_query,), (N_query,)
@@ -145,23 +146,20 @@ class Losses(eqx.Module):
         
         def compute_pde_terms(xi, ti):
             uv_sol = sol_u_single(xi, ti)  # (2,)
-            duv_dt = jax.jacrev(sol_u_single, argnums=1)(xi, ti)  # (2,)
-            nabla_h = jax.jacrev(sol_h_single, argnums=0)(xi, ti)  # (2,)
-            return uv_sol, duv_dt[:, 0], nabla_h
+            duv_dt = jax.jacfwd(sol_u_single, argnums=1)(xi, ti)  # (2,1)
+            duv_dt = jnp.squeeze(duv_dt, axis=-1)  # (2,)
+            nabla_h = jax.jacfwd(sol_h_single, argnums=0)(xi, ti)  # (2,)
+            return (uv_sol[0], uv_sol[1],  # u, v
+                    duv_dt[0], duv_dt[1],  # u_t, v_t
+                    nabla_h[0], nabla_h[1])  # h_x, h_y
         
-        uv_sol, duv_dt, nabla_h = jax.vmap(compute_pde_terms, 
-                                          in_axes=(0, 0))(x, t)  # (N_query, 2), (N_query, 2), (N_query, 2)
-        
-        u_t = duv_dt[:, 0]  # (N_query,)
-        v_t = duv_dt[:, 1]  # (N_query,)
-        h_x = nabla_h[:, 0]  # (N_query,)
-        h_y = nabla_h[:, 1]  # (N_query,)
-        u_sol = uv_sol[:, 0]  # (N_query,)
-        v_sol = uv_sol[:, 1]  # (N_query,)
+        u_sol, v_sol, u_t, v_t, h_x, h_y = jax.vmap(
+            compute_pde_terms, in_axes=(0, 0)
+        )(x, t)  # 6 个 (N_query,) 数组
         
         pde_u = u_t / Tc - f * v_sol + g * h_x / Lc  # (N_query,)
         pde_v = v_t / Tc + f * u_sol + g * h_y / Lc  # (N_query,)
-        pde = jnp.sqrt(jnp.square(pde_u) + jnp.square(pde_v))  # (N_query,)
+        pde = jnp.concatenate([pde_u[:, None], pde_v[:, None]], axis=-1)  # (N_query, 2)
         return pde
     
     def loss_momentum(
@@ -185,13 +183,14 @@ class Losses(eqx.Module):
         residuals = jax.vmap(
             self.residual_momentum,
             in_axes=(None, 0, None, None, None)
-        )(model, u, x, t, cfg)  # (B, N_query)
+        )(model, u, x, t, cfg)  # (B, N_query, 2)
         
         if not cfg.use_causality:
             mse_loss = jnp.mean(jnp.square(residuals))
             return mse_loss, {}
         
         else:
+            residuals = jnp.sqrt(jnp.sum(jnp.square(residuals), axis=-1))  # (B, N_query)
             residuals_mean, loss_chunks, causal_weights =\
                 self.causal_weightor.compute_causal_loss(
                     residuals, t, kwargs.get("causal_eps", 1e-3) 
@@ -227,7 +226,7 @@ class Losses(eqx.Module):
         h_ref = rearrange(u, "B C H W -> B (H W) C")[:, :, 0]  # (B, H*W)
         mse_loss = jnp.mean(jnp.square(h_pred - h_ref))
         return mse_loss, {}
-    
+
     def loss_ic_uv(
         self,
         model: Union[DeepONet, CViT],
@@ -268,7 +267,7 @@ class Losses(eqx.Module):
         
         losses = []
         grads = []
-        aux_vars = []
+        aux_vars = {}
         
         for name in active_losses:
             
@@ -313,13 +312,20 @@ class Losses(eqx.Module):
     def grad_norm_weights(self, grads: list, eps=1e-6):
         def tree_norm(pytree):
             r, _ = ravel_pytree(pytree)
+            r = jnp.nan_to_num(r) 
             return jnp.linalg.norm(r)
-
+        
+        
         grad_norms = jnp.array([tree_norm(g) for g in grads])
-        grad_norms = jnp.clip(grad_norms, eps, 1 / eps)
-        weights = jnp.mean(grad_norms) / grad_norms
+        grad_norms = jnp.nan_to_num(grad_norms)
+        mean_norm = jnp.mean(grad_norms)
+        safe_norms = jnp.maximum(grad_norms, 1e-8)
+        weights = mean_norm / safe_norms
         weights = jnp.nan_to_num(weights)
-        weights = jnp.clip(weights, eps, 1 / eps)
+        # grad_norms = jnp.clip(grad_norms, eps, 1 / eps)
+        # weights = jnp.mean(grad_norms) / grad_norms
+        # weights = jnp.nan_to_num(weights)
+        # weights = jnp.clip(weights, eps, 1 / eps)
         return jax.lax.stop_gradient(weights)
 
         

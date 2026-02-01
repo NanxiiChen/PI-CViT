@@ -15,6 +15,7 @@ class PeriodicDecoder(eqx.Module):
         self.original_decoder = original_decoder
         self.lx = lx
         self.ly = ly
+
         
     def __call__(self, u, x, t):
         # u: (N_patch, enc_emb_dim)
@@ -28,8 +29,15 @@ class PeriodicDecoder(eqx.Module):
         
         x_periodic = jnp.concatenate([sinx, cosx, siny, cosy], axis=-1)
         
-        return self.original_decoder(u, x_periodic, t)
-    
+        sol = self.original_decoder(u, x_periodic, t) # (N_query, out_dim)
+        return sol
+        # coef = jnp.concatenate([
+        #     jnp.ones((x.shape[0], 1)), 
+        #     t,
+        #     t,
+        # ], axis=-1)  # (N_query, 3)
+        # return sol * coef  # (N_query, out_dim)
+        
     
 class PeriodicCViT(eqx.Module):
     encoder: Encoder

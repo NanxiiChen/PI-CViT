@@ -57,7 +57,7 @@ class CausalWeightor:
 
         ax = axes[1]
         ax.plot(jnp.arange(self.num_chunks), causal_weights, marker="o")
-        ax.set_title(f"Causal Weights (eps={eps:.1f})")
+        ax.set_title(f"Causal Weights (eps={eps:.1e})")
         ax.set_xlabel("Chunk Index")
         ax.set_ylabel("Weight Value")
 

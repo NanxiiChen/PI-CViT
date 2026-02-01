@@ -50,7 +50,8 @@ def train_step(
         **kwargs
     )
     total_grad = jax.tree.map(lambda x: jnp.nan_to_num(x), total_grad)
-    updates, new_state = optimizer.update(total_grad, state, model)
+    params = eqx.filter(model, eqx.is_array)
+    updates, new_state = optimizer.update(total_grad, state, params, is_training=True,)
     new_model = eqx.apply_updates(model, updates)
     return new_model, new_state, total_loss, losses, weights, aux_vars
 
@@ -119,27 +120,39 @@ def main():
     # !!! make `causal_eps` jax array, 
     # !!! so that it can be traced in jit
     # !!! otherwise, it will cause jit compilation every time when `causal_eps` is updated
-    causal_eps = jnp.array(configs.causality_params["causal_eps"])
+    causal_eps = jnp.array(configs.causality_params["initial_eps"])
     loss_fn = losses.loss_fn
     active_loss_names = configs.active_loss_names
     active_losses = tuple(f"loss_{name}" for name in active_loss_names)
     
-    base_tx = optax.chain(
-        optax.clip_by_global_norm(configs.max_grad_norm),
-        soap(
-            learning_rate=configs.initial_lr,
-            b1=0.95,
-            b2=0.95,
-            precondition_frequency=5,
-        )
-    )
+    # base_tx = optax.chain(
+    #     optax.clip_by_global_norm(configs.max_grad_norm),
+    #     soap(
+    #         learning_rate=configs.initial_lr,
+    #         b1=0.95,
+    #         b2=0.95,
+    #         precondition_frequency=5,
+    #     )
+    # )
 
-    optimizer = optax.contrib.schedule_free(
-        base_tx,
-        learning_rate=configs.initial_lr,
+    # optimizer = optax.contrib.schedule_free(
+    #     base_tx,
+    #     learning_rate=configs.initial_lr,
+    #     b1=0.95,
+    # )
+    optimizer = get_optimizer(
+        optimizer_name=configs.optimizer_name,
+        init_value=configs.initial_lr,
+        transition_steps=configs.decay_every,
+        decay_rate=configs.decay_rate,
+        staircase=False,
+        end_value=configs.min_lr,
         b1=0.95,
+        b2=0.95,
+        precondition_frequency=5,
+        weight_decay=1e-6,
+        max_grad_norm=configs.max_grad_norm,
     )
-    
     
     opt_state = optimizer.init(eqx.filter(model, eqx.is_array))
     last_weights = jnp.array([1.0] * len(active_losses)) / len(active_losses)
@@ -183,9 +196,10 @@ def main():
             plt.close(fig)
             
             
-        weight_coef = jnp.array([0.5, 0.5, 2.0, 2.0]) \
+        weight_coef = jnp.array([1.0, 1.0, 3.0, 3.0]) \
             if epoch < configs.warmup_epochs \
             else jnp.array([1.0] * len(active_losses))
+        # weight_coef = jnp.array([1.0, 1.0, 5.0])
             
         model, opt_state, total_loss, loss_values, weights, aux_vars = train_step(
             model,
@@ -224,6 +238,8 @@ def main():
                 max_min_weight=configs.causality_params["max_min_weight"],
                 step_size=configs.causality_params["step_size"],
             )
+            if abs(jnp.minimum(new_eps_momentum, new_eps_continuity) - causal_eps) > 1e-6:
+                print(f"Update epsilon: {causal_eps:.4e} --> {jnp.minimum(new_eps_momentum, new_eps_continuity):.4e}")
             # use the smaller one
             causal_eps = jnp.minimum(new_eps_momentum, new_eps_continuity)
             
@@ -231,12 +247,12 @@ def main():
                 causal_fig_momentum = causal_weightor.plot_causal_info(
                     loss_chunks=loss_chunks_momentum,
                     causal_weights=causal_weights_momentum,
-                    causal_eps=causal_eps,
+                    eps=causal_eps,
                 )
                 causal_fig_continuity = causal_weightor.plot_causal_info(
                     loss_chunks=loss_chunks_continuity,
                     causal_weights=causal_weights_continuity,
-                    causal_eps=causal_eps,
+                    eps=causal_eps,
                 )
                 writer.add_figure("causality/causal_info_momentum", causal_fig_momentum, epoch)
                 writer.add_figure("causality/causal_info_continuity", causal_fig_continuity, epoch)

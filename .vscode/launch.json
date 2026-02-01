@@ -65,7 +65,7 @@
             "request": "launch",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "module": "swe.losses",
+            "module": "swe.train",
             "args": [
                 "--configs",
                 "train_cvit"

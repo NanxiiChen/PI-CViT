@@ -125,12 +125,24 @@ def evaluate_model(
     for i, tic in enumerate(target_ts):
         ax = axes[0, i]
         ax.set_axis_off()
-        ax.contourf(
+        ref_cont = ax.contourf(
             xx, yy,
             ref_sols[batch_th, i, channel_th, :, :],
             levels=50,
             cmap="RdBu_r",
         )
+        
+        fig.colorbar(
+            ref_cont, ax=ax, fraction=0.046, pad=0.04,
+            orientation="horizontal",
+            format="%.3f", ticks=jnp.linspace(
+                jnp.min(ref_sols[batch_th, i, channel_th, :, :]),
+                jnp.max(ref_sols[batch_th, i, channel_th, :, :]),
+                num=5,
+            )[1:]
+        )
+        
+        
         if i == 0:
             ax.text(-0.01, 0.5, f"Ref. {notation}",
                     va="center", ha="right", rotation=90,
@@ -143,10 +155,22 @@ def evaluate_model(
         
         ax = axes[1, i]
         ax.set_axis_off()
-        ax.contourf(
+        pred_cont = ax.contourf(
             xx, yy, sols[batch_th, i, channel_th, :, :],
             levels=50, cmap="RdBu_r",
         )
+        
+        fig.colorbar(
+            pred_cont, ax=ax, fraction=0.046, pad=0.04,
+            orientation="horizontal",
+            format="%.3f", ticks=jnp.linspace(
+                jnp.min(sols[batch_th, i, channel_th, :, :]),
+                jnp.max(sols[batch_th, i, channel_th, :, :]),
+                num=5,
+            )[1:]
+        )
+
+        
         if i == 0:
             ax.text(-0.01, 0.5, f"Pred. {notation}",
                     va="center", ha="right", rotation=90,
@@ -182,12 +206,9 @@ def evaluate_model(
         jnp.sum(ref_sols**2, axis=(1, 3, 4))
     )
     total_l2 = jnp.mean(total_l2)
-    fig.subplots_adjust(
-        left=0.03, right=0.97, top=0.95, bottom=0.03, hspace=0.1, wspace=0.1
-    )
     fig.suptitle(
         f"Exam. {batch_th}, Var. {notation}, Rel. L2 Error: {total_l2:.2e}",
-        y=1.02,
+        y=0.95,
     )
     return fig, total_l2
             
