@@ -21,7 +21,7 @@ Where:
 - \( h \) is the perturbation of the free surface height
 - \( H \) is the mean fluid depth
 - \( \mathbf{u} = (u, v) \) is the horizontal velocity
-- \( f \) is the Coriolis parameter, we set \( f = 1 \) here
+- \( f \) is the Coriolis parameter, we set \( f = 10 \) here
 - \( g \) is the gravitational acceleration, we set \( g = 1 \)
 - \( h_0(x, y) \) is a randomly generated initial condition using Gaussian random fields with \(l = 0.1\)
 - \( \mathbf{k} \) is the unit vector in the vertical direction with \( \mathbf{k} = (0, 0, 1) \)

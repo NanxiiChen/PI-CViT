@@ -234,7 +234,7 @@ class Losses(eqx.Module):
         cfg: Config,
         **kwargs
     ) -> Tuple[jnp.array, dict]:
-        # u: B, C=3, H, W
+        # u: B, C=1, H, W
         
         lx = getattr(cfg, "lx", 1.0)
         ly = getattr(cfg, "ly", 1.0)
@@ -251,6 +251,102 @@ class Losses(eqx.Module):
         # uv_ref is zero
         mse_loss = jnp.mean(jnp.square(uv_pred))
         return mse_loss, {}
+    
+    
+    def residual_ic_uv_dt(
+        self,
+        model: Union[DeepONet, CViT],
+        u: jnp.ndarray,
+        x: jnp.ndarray,
+        t: jnp.ndarray,
+        cfg: Config,
+        **kwargs
+    ) -> jnp.ndarray:
+        # u: C=1, H, W
+        """
+        According to the momentum equations, 
+        for zero initial velocity field,
+        the initial time derivative of u, v should satisfy:
+        u_t = -g*h_x
+        v_t = -g*h_y
+        """
+        lx = getattr(cfg, "lx", 1.0)
+        ly = getattr(cfg, "ly", 1.0)
+        g = cfg.g_val
+        Lc = cfg.Lc
+        Tc = cfg.Tc
+        C, H, W = u.shape
+        
+        # we first compute the spatial derivatives on reference h field
+        kx = jnp.fft.fftfreq(W, d=(lx / W)) * 2 * jnp.pi  # (W,)
+        ky = jnp.fft.fftfreq(H, d=(ly / H)) * 2 * jnp.pi  # (H,)
+        KX, KY = jnp.meshgrid(kx, ky, indexing="ij")  # (W, H) we always use 'ij' indexing
+        h_trans = rearrange(u, "C H W -> C W H") # transpose for fft
+        h_fft = jnp.fft.fftn(h_trans, axes=(-2, -1))  # (C=1, W, H)
+        h_x_fft = 1j * KX[None, :, :] * h_fft  # (C=1, W, H)
+        h_y_fft = 1j * KY[None, :, :] * h_fft  # (C=1, W, H)
+        h_x = jnp.fft.ifftn(h_x_fft, axes=(-2, -1)).real  # (C=1, W, H)
+        h_y = jnp.fft.ifftn(h_y_fft, axes=(-2, -1)).real  # (C=1, W, H)
+        h_x = rearrange(h_x, "C W H -> C H W")  # (C=1, H, W)
+        h_y = rearrange(h_y, "C W H -> C H W")  # (C=1, H, W)
+        
+        # now compute the model predicted u_t, v_t at t=0
+        enc_out = model.encoder(u) # (N_patches, emb_dim)
+        def sol_u_single(xi, ti):
+            sol = model.decoder(enc_out, xi[None, :], ti[None, :]) # (1, 3) --> h, u, v
+            return sol[0, 1:] # (u, v)
+        
+        def compute_ut_vt(xi, ti):
+            duv_dt = jax.jacfwd(sol_u_single, argnums=1)(xi, ti)  # (2,1)
+            duv_dt = jnp.squeeze(duv_dt, axis=-1)  # (2,)
+            return duv_dt  # u_t, v_t
+        
+        uv_t = jax.vmap(
+            compute_ut_vt, in_axes=(0, 0)
+        )(x, t)  # (H*W, 2)
+        
+        uv_t_pred = rearrange(uv_t, "(H W) C -> C H W", H=H, W=W)  # (C=2, H, W)
+        u_t_pred = uv_t_pred[0:1, :, :] / Tc  # (C=1, H, W)
+        v_t_pred = uv_t_pred[1:2, :, :] / Tc  # (C=1, H, W)
+        u_t_ref = -g * h_x / Lc # (C=1, H, W)
+        v_t_ref = -g * h_y / Lc # (C=1, H, W)
+        res_u = u_t_pred - u_t_ref  # (C=1, H, W)
+        res_v = v_t_pred - v_t_ref  # (C=1, H, W)
+        res = jnp.concatenate([res_u, res_v], axis=0)  # (C=2, H, W)
+        return res
+    
+        
+    
+    def loss_ic_uv_dt(
+        self,
+        model: Union[DeepONet, CViT],
+        u: jnp.ndarray,
+        cfg: Config,
+        **kwargs
+    ) -> Tuple[jnp.array, dict]:
+        # u: B, C=1, H, W
+        """
+        According to the momentum equations, 
+        for zero initial velocity field,
+        the initial time derivative of u, v should satisfy:
+        u_t = -g*h_x
+        v_t = -g*h_y
+        """
+        lx = cfg.lx
+        ly = cfg.ly
+        B, C, H, W = u.shape
+        x1 = jnp.linspace(0, lx, W, endpoint=False) # periodic
+        y1 = jnp.linspace(0, ly, H, endpoint=False)
+        xx, yy = jnp.meshgrid(x1, y1, indexing="xy")
+        x_ic = jnp.stack([xx.ravel(), yy.ravel()], axis=-1)  # (H*W, 2)
+        t_ic = jnp.zeros((H*W, 1))  # (H*W, 1)
+        res = jax.vmap(
+            self.residual_ic_uv_dt,
+            in_axes=(None, 0, None, None, None)
+        )(model, u, x_ic, t_ic, cfg)  # (B, C=2, H, W)
+        mse_loss = jnp.mean(jnp.square(res))
+        return mse_loss, {}
+        
     
     def loss_fn(
         self,
@@ -276,7 +372,7 @@ class Losses(eqx.Module):
                 x = coord_samples[:, :-1]
                 t = coord_samples[:, -1:]
                 
-            elif name == "loss_ic_h" or name == "loss_ic_uv":
+            elif name == "loss_ic_h" or name == "loss_ic_uv" or name == "loss_ic_uv_dt":
                 x = None
                 t = None            
                 

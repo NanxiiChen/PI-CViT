@@ -7,6 +7,22 @@ import jax.numpy as jnp
 import jax.random as jr
 
 
+class Snake(eqx.Module):
+    alpha: jnp.ndarray
+
+    def __init__(self, alpha_init: float = 1.0):
+        self.alpha = jnp.array(alpha_init, dtype=jnp.float32)
+
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        return x + (1.0 / self.alpha) * jnp.square(jnp.sin(self.alpha * x))
+    
+def get_activation(act_name: str) -> Callable:
+    if act_name == "snake":
+        return Snake()
+    else:
+        return getattr(jax.nn, act_name)
+
+
 # Positional embedding from masked autoencoder https://arxiv.org/abs/2111.06377
 def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     assert embed_dim % 2 == 0
@@ -332,7 +348,8 @@ class Mlp(eqx.Module):
             
         # Output layer
         self.layers.append(nn.Linear(curr_dim, out_dim, key=keys[-1]))
-        self.act = getattr(jax.nn, act)
+        # self.act = getattr(jax.nn, act)
+        self.act = get_activation(act)
 
     def __call__(self, inputs):
         # inputs: (..., in_dim)

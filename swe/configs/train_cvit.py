@@ -7,8 +7,9 @@ class Config:
     model_name = "cvit"
     data_dir = "./data/swe"
     save_dir = "/root/autodl-tmp/tf-logs/swe/cvit"
-    # ckpt = save_dir + "/20260115-204856/model_epoch_3000.eqx"
-    ckpt = None
+    # ckpt = "/root/autodl-tmp/tf-logs/swe/cvit/STAGE1-baseline-0202-dim384_heads8_depth4/model_epoch_28000.eqx"
+    ckpt = "/root/autodl-tmp/tf-logs/swe/cvit/STAGE2-baseline-0202-dim384_heads8_depth4/model_epoch_11000.eqx"
+    # ckpt = None
     target_ts = jnp.array([0.0, 0.2, 0.5, 0.8, 1.0])  # target time steps for evaluation
     lx = 1.0
     ly = 1.0
@@ -19,7 +20,7 @@ class Config:
     spatial_domain = ((0, lx), (0, ly))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
     active_loss_names = ("momentum", "continuity", "ic_h", "ic_uv")
-    use_multi_gpu = True # some times `nan` occurs when using single gpu, possibly due to `hessian` computation instability
+    use_multi_gpu = True
 
     Lc = 1.0  # xc = x / Lc
     Tc = 1.0  # tc = t / Tc
@@ -35,7 +36,7 @@ class Config:
         num_heads=8,
         ## model:decoder
         fourier_freq=2.0,
-        dec_depth=6,
+        dec_depth=4,
         dec_num_heads=8,
         dec_emb_dim=384,  # two times of ffe hidden dim (sin, cos)
         dec_mlp_act="gelu",
@@ -54,16 +55,16 @@ class Config:
 
     causality_params = dict(
         num_chunks=24,
-        initial_eps=1e-5,
+        initial_eps=1e-5 if ckpt is None else 1e-2,
         max_eps=1.0,
         step_size=5.0,
         min_mean_weight=0.2,
-        max_min_weight=0.95,
+        max_min_weight=0.99,
     )
 
     # training hyperparameters
     num_epochs = 50000
-    initial_lr = 5e-4
+    initial_lr = 5e-4 if ckpt is None else 1e-5
     decay_every = 200
     decay_rate = 0.95
     min_lr = 1e-5
@@ -72,7 +73,7 @@ class Config:
     test_every = 500
     resample_coord_every = 50
     resample_u_every = 100
-    warmup_epochs = 1000
+    warmup_epochs = 1000 if ckpt is None else 0
 
     num_u_samples = 32
     num_pde_samples = 2048
