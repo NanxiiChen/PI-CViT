@@ -40,7 +40,8 @@ class CausalWeightor:
         loss_chunks = jnp.mean(loss_chunks, axis=0)  # (num_chunks,)
 
         causal_weights = self.compute_causal_weights(loss_chunks, eps)
-        causal_weighted_loss = jnp.sum(causal_weights * loss_chunks)
+        # causal_weighted_loss = jnp.sum(causal_weights * loss_chunks)
+        causal_weighted_loss = jnp.mean(causal_weights * loss_chunks)
 
         return causal_weighted_loss, loss_chunks, causal_weights
 
