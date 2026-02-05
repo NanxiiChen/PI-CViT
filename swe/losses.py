@@ -405,7 +405,7 @@ class Losses(eqx.Module):
         return (total_loss, (losses, weights, aux_vars)), total_grad
         
         
-    def grad_norm_weights(self, grads: list, eps=1e-6):
+    def grad_norm_weights(self, grads: list, eps=1e-4):
         def tree_norm(pytree):
             r, _ = ravel_pytree(pytree)
             r = jnp.nan_to_num(r) 
@@ -421,7 +421,7 @@ class Losses(eqx.Module):
         # grad_norms = jnp.clip(grad_norms, eps, 1 / eps)
         # weights = jnp.mean(grad_norms) / grad_norms
         # weights = jnp.nan_to_num(weights)
-        # weights = jnp.clip(weights, eps, 1 / eps)
+        weights = jnp.clip(weights, eps, 1 / eps)
         return jax.lax.stop_gradient(weights)
 
         

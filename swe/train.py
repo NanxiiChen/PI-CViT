@@ -148,7 +148,7 @@ def main():
         staircase=False,
         end_value=configs.min_lr,
         b1=0.95 if configs.ckpt is None else 0.90,
-        b2=0.95 if configs.ckpt is None else 0.90,
+        b2=0.95,
         precondition_frequency=5,
         weight_decay=1e-6,
         max_grad_norm=configs.max_grad_norm,
@@ -166,6 +166,7 @@ def main():
     
     for epoch in range(0, epochs):
         if epoch % configs.resample_coord_every == 0 or epoch >= configs.warmup_epochs:
+            # after warmup, resample coords every epoch
             subkey, key = jax.random.split(key)
             coords = coord_sampler.resample(subkey)
             if configs.use_multi_gpu:
@@ -174,7 +175,8 @@ def main():
                 ) # put coords to devices
 
             
-        if epoch % configs.resample_u_every == 0 or epoch >= configs.warmup_epochs:
+        if epoch % configs.resample_u_every == 0 or (epoch >= configs.warmup_epochs and epoch % 5 == 0):
+            # after warmup, resample `u` more frequently
             subkey, key = jax.random.split(key)
             batch_u = func_sampler.resample(subkey)
             
