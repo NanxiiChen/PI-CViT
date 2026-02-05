@@ -19,7 +19,7 @@ class CoordSampler:
         ),
         num_pde_samples: int = 1024,
         num_bc_samples: int = 256,
-        eps: float = 2e-2,
+        eps: float = 1e-3,
     ):
         self.spatial_domain = spatial_domain
         self.num_pde_samples = num_pde_samples
@@ -61,7 +61,7 @@ class CoordSampler:
          
         # left wall (x = x_min)
         left_wall_y = lhs_sampling(
-            jnp.array([y_min]), jnp.array([y_max - self.eps]), 
+            jnp.array([y_min]), jnp.array([y_max]), 
             self.num_bc_samples, k1
         )
         left_wall = jnp.concatenate(
@@ -79,7 +79,7 @@ class CoordSampler:
         
         # right wall (x = x_max)
         right_wall_y = lhs_sampling(
-            jnp.array([y_min]), jnp.array([y_max - self.eps]), 
+            jnp.array([y_min]), jnp.array([y_max]), 
             self.num_bc_samples, k3
         )
         right_wall = jnp.concatenate(
@@ -95,7 +95,7 @@ class CoordSampler:
         
         # top wall (y = y_max)
         top_wall_x = lhs_sampling(
-            jnp.array([x_min + self.eps]), jnp.array([x_max - self.eps]), 
+            jnp.array([x_min]), jnp.array([x_max]), 
             self.num_bc_samples, key
         )
         top_wall = jnp.concatenate(

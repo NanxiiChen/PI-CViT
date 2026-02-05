@@ -191,6 +191,8 @@ class Losses(eqx.Module):
         Compute the boundary condition loss at the lid.
         u = 1 at y=ly
         v = 0 at y=ly
+        
+        x: (N_bc, 2)
         """
         
         
@@ -198,9 +200,10 @@ class Losses(eqx.Module):
             model, in_axes=(0, None)
         )(u, x)  # (B, N_bc, 3)
         
-        ref = jnp.array([1.0, 0.0])  # (2,)
-        loss = jnp.mean(jnp.square(sol[:, :, 0:2] 
-                                   - ref[None, None, :]))  # ()
+        # ref = jnp.array([1.0, 0.0])  # (2,)
+        ref = 1 - jnp.cosh(50 * (x-0.5)) / jnp.cosh(25) # (N_bc, 2)
+        
+        loss = jnp.mean(jnp.square(sol[:, :, 0:2] - ref[None, :, :]))  # ()
         
         return loss, {}
     
