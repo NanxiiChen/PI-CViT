@@ -37,17 +37,23 @@ $$
 The approximate signed distance $d(x, y)$ is calculated via the following steps:
 
 1.  **Coordinate Rotation**: Transform global coordinates $(x, y)$ to the ellipse's local frame $(x', y')$:
+
     $$
     x' = x \cos\theta + y \sin\theta, \quad y' = -x \sin\theta + y \cos\theta
     $$
+
 2.  **Normalized Radius**:
+
     $$
     r_{norm} = \sqrt{\left(\frac{x'}{a}\right)^2 + \left(\frac{y'}{b}\right)^2}
     $$
+
 3.  **Distance Approximation**:
+
     $$
     d(x, y) \approx S \cdot (1 - r_{norm}), \quad \text{where } S = \frac{2ab}{a+b}
     $$
+    
     The scaling factor $S$ (harmonic mean of the axes) is used to approximate the distance near the interface, ensuring $d > 0$ inside and $d < 0$ outside.
 
 The parameters are sampled uniformly for each simulation in the batch:
@@ -74,7 +80,9 @@ $$
 ## Results
 
 Solution field:
+
 <img src="../figures/ice_melting_solution_field.png" alt="Solution Field" width="480"/>
 
 Area fraction over time:
+
 <img src="../figures/ice_melting_area_fraction.png" alt="Area Fraction" width="480"/>
