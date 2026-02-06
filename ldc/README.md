@@ -1,29 +1,44 @@
 # Lid-driven-cavity Flow
 
 Steady-state solution of the incompressible Navier-Stokes equations for a lid-driven-cavity flow.
-\[
+$$
 \nabla \cdot \mathbf{u} = 0, \\
 \mathbf{u} \cdot \nabla \mathbf{u} = -\nabla p + \nu \nabla^2 \mathbf{u},
-\]
+$$
 subject to no-slip boundary conditions on the left, bottom, and right walls:
-\[
+$$
     \mathbf{u} = 0 \quad \text{on the left, bottom, and right walls}
-\]
+$$
 and a moving lid on the top wall:
-\[
+$$
     \mathbf{u} = (U, 0) \quad \text{on the top wall}
-\]
+$$
 
 The streamfunction-vorticity formulation is used to eliminate the pressure term:
-\[
+$$
 \nabla^2 \psi = -\omega, \\
 \mathbf{u} = \left( \frac{\partial \psi}{\partial y}, -\frac{\partial \psi}{\partial x} \right), \\
 \mathbf{u} \cdot \nabla \omega = \nu \nabla^2 \omega,
-\]
+$$
 where \(\psi\) is the streamfunction and \(\omega\) is the vorticity. The boundary conditions for the streamfunction are:
-\[
+$$
     \psi = 0 \quad \text{on all walls}
-\]
-
+$$
 
 The numerical solver is forked from `https://github.com/KartikeyGangwar/lid-driven-cavity-cfd/tree/main`.
+
+
+## Results
+
+Solution field:
+
+<img src="../figures/ldc_solution_field.png" alt="Lid-driven-cavity solution field" width="480"/>
+
+Velocity profiles along the horizontal and vertical centerlines:
+
+<img src="../figures/ldc_velocity_profile_v.png" alt="Lid-driven-cavity velocity profile v" width="480"/>
+<img src="../figures/ldc_velocity_profile_u.png" alt="Lid-driven-cavity velocity profile u" width="480"/>
+
+Convergence of the relative L2 error during training:
+
+<img src="../figures/ldc_test_l2_convergence.png" alt="Lid-driven-cavity test L2 convergence" width="480"/>
