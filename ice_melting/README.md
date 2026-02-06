@@ -71,6 +71,10 @@ $$
 - $a, b \sim U[20, 40]$: Random semi-axes
 - $\theta \sim U[0, \pi]$: Random rotation angle
 
-## Data Generation
+## Results
 
-The script runs a batch of simulations (default $B=10$) with different random initial parameters and saves the results to `./results`.
+Solution field:
+<img src="../figures/ice_melting_solution_field.png" alt="Solution Field" width="480"/>
+
+Area fraction over time:
+<img src="../figures/ice_melting_area_fraction.png" alt="Area Fraction" width="480"/>

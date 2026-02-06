@@ -14,6 +14,7 @@ train2d.sh
 databackup/
 data*
 tmp/
+figures/*.pdf
 
 # C extensions
 *.so

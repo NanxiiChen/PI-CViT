@@ -5,7 +5,7 @@ import jax.numpy as jnp
 @dataclass(frozen=True)
 class Config:
     model_name = "cvit"
-    data_dir = "./data/swe"
+    data_dir = "./data/swe/f10"
     save_dir = "/root/autodl-tmp/tf-logs/swe/cvit"
     # ckpt = "/root/autodl-tmp/tf-logs/swe/cvit/STAGE1-baseline-0202-dim384_heads8_depth4/model_epoch_28000.eqx"
     # ckpt = "/root/autodl-tmp/tf-logs/swe/cvit/STAGE2-baseline-0202-dim384_heads8_depth4/model_epoch_11000.eqx"
@@ -83,4 +83,4 @@ class Config:
     # material properties
     H_val = 1.0  # water depth
     g_val = 1.0
-    f_val = 10.0
+    f_val = 1.0
