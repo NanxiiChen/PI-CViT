@@ -91,6 +91,7 @@ def main():
         spatial_domain=configs.spatial_domain,
         temporal_domain=configs.temporal_domain,
         num_pde_samples=configs.num_pde_samples,
+        num_ic_samples=configs.num_ic_samples,
     )
     
     subkey, key = jax.random.split(key)
@@ -147,10 +148,10 @@ def main():
         decay_rate=configs.decay_rate,
         staircase=False,
         end_value=configs.min_lr,
-        b1=0.95 if configs.ckpt is None else 0.90,
-        b2=0.95,
+        b1=0.90,
+        b2=0.90,
         precondition_frequency=5,
-        weight_decay=1e-6,
+        weight_decay=0.0,
         max_grad_norm=configs.max_grad_norm,
     )
     

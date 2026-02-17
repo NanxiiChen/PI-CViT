@@ -10,6 +10,7 @@ class Config:
     # ckpt = "/root/autodl-tmp/tf-logs/swe/cvit/STAGE1-baseline-0202-dim384_heads8_depth4/model_epoch_28000.eqx"
     # ckpt = "/root/autodl-tmp/tf-logs/swe/cvit/STAGE2-baseline-0202-dim384_heads8_depth4/model_epoch_11000.eqx"
     ckpt = None
+    # ckpt = "/root/autodl-tmp/tf-logs/swe/cvit/SOTA-0201-decdim384-decheads8-decdepth4/model_epoch_35000.eqx"
     target_ts = jnp.array([0.0, 0.2, 0.5, 0.8, 1.0])  # target time steps for evaluation
     lx = 1.0
     ly = 1.0
@@ -65,9 +66,9 @@ class Config:
     # training hyperparameters
     num_epochs = 50000
     initial_lr = 5e-4 if ckpt is None else 1e-5
-    decay_every = 200
+    decay_every = 500
     decay_rate = 0.95
-    min_lr = 1e-5
+    min_lr = 1e-6
     save_every = 500
     log_every = 50
     test_every = 500
@@ -77,10 +78,11 @@ class Config:
 
     num_u_samples = 32
     num_pde_samples = 2048
+    num_ic_samples = 2048
     num_rar_samples = 0
     num_rar_pools = 0 # too slow to compute huge pool prediction, and no apparent benefit
 
     # material properties
     H_val = 1.0  # water depth
     g_val = 1.0
-    f_val = 1.0
+    f_val = 10.0

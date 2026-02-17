@@ -17,10 +17,12 @@ class CoordSampler:
         ),
         temporal_domain: Tuple[float, float] = (0.0, 1.0),
         num_pde_samples: int = 1024,
+        num_ic_samples: int = 512,
     ):
         self.spatial_domain = spatial_domain
         self.temporal_domain = temporal_domain
         self.num_pde_samples = num_pde_samples
+        self.num_ic_samples = num_ic_samples
         
         
     def sample_pde(self, key: jax.Array) -> jnp.ndarray:
@@ -44,15 +46,30 @@ class CoordSampler:
 
         return pde_points
     
+    def sample_ic(self, key: jax.Array) -> jnp.ndarray:
+        """Sample points at the initial time."""
+        x_min, x_max = self.spatial_domain[0]
+        y_min, y_max = self.spatial_domain[1]
+        t_min, _ = self.temporal_domain
+
+        mins = jnp.array([x_min, y_min, t_min])
+        maxs = jnp.array([x_max, y_max, t_min])
+        
+        ic_points = lhs_sampling(mins, maxs, self.num_ic_samples, key)
+        return ic_points
+    
+    
     def resample(
         self,
         key: jax.Array
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         
         pde_samples = self.sample_pde(key)
+        ic_samples = self.sample_ic(key)
         
         return {
-            "pde": pde_samples
+            "pde": pde_samples,
+            "ic_uv": ic_samples
         }
     
 
