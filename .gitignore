@@ -15,6 +15,7 @@ databackup/
 data*
 tmp/
 figures/*.pdf
+count_params.ipynb
 
 # C extensions
 *.so
