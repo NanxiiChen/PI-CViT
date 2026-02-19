@@ -130,7 +130,7 @@ def main():
         optax.clip_by_global_norm(configs.max_grad_norm),
         soap(
             learning_rate=configs.initial_lr,
-            b1=0.95,
+            b1=0.0,
             b2=0.95,
             precondition_frequency=5,
         )

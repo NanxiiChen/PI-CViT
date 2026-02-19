@@ -154,21 +154,31 @@ class Encoder(eqx.Module):
         u = u.reshape(self.num_tokens, u.shape[-1] // self.num_tokens)  # (..., num_tokens, emb_dim)
         return u
 
-
 class FourierEmbs(eqx.Module):
     kernel: jnp.ndarray
     embed_dim: int
 
-    def __init__(self, key: jr.PRNGKey, embed_scale: float, embed_dim: int, input_dim: int):
+    def __init__(self, key: jr.PRNGKey, 
+                 embed_scale: float | Tuple[float],
+                 embed_dim: int, 
+                 input_dim: int):
         self.embed_dim = embed_dim
-        self.kernel = jr.normal(key, (input_dim, embed_dim // 2)) * embed_scale
+        # self.kernel = jr.normal(key, (input_dim, embed_dim // 2)) * embed_scale
+        if isinstance(embed_scale, float):
+            embed_scale = (embed_scale,)
+            
+        self.kernel = []
+        keys = jr.split(key, len(embed_scale))
+        for idx, scale in enumerate(embed_scale):
+            k = jr.normal(keys[idx], (input_dim, embed_dim // (2*len(embed_scale)))) * scale
+            self.kernel.append(k)
+        self.kernel = jnp.concatenate(self.kernel, axis=-1) # (input_dim, embed_dim//2)
 
     def __call__(self, x):
         # x: (..., input_dim)
-        proj = jnp.dot(x, self.kernel)
+        proj = jnp.dot(x, self.kernel) # (..., embed_dim//2)
         y = jnp.concatenate([jnp.cos(proj), jnp.sin(proj)], axis=-1)
         return y
-
 
 
 

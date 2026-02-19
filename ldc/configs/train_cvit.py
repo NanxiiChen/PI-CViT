@@ -51,8 +51,8 @@ class Config:
         depth=2,
         num_tokens=1,
         ## model:decoder
-        fourier_freq=2.0,
-        dec_depth=2,
+        fourier_freq=(2.0, 5.0),
+        dec_depth=4,
         dec_num_heads=8,
         dec_emb_dim=256,  # two times of ffe hidden dim (sin, cos)
         dec_mlp_act="gelu",
@@ -79,7 +79,7 @@ class Config:
     resample_coord_every = 50
     resample_u_every = 50
     if ckpt is None:
-        warmup_epochs = 1000
+        warmup_epochs = 0
         reach_max_re_epoch = 5000
     else:
         warmup_epochs = 0
