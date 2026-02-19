@@ -63,7 +63,7 @@ class Config:
 
         # Common args
         basis_dim=512,
-        out_dim=1,
+        out_dim=3,              # u, v, p
         coord_dim=2,
         act="tanh",
     )

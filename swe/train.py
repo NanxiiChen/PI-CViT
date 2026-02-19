@@ -22,7 +22,6 @@ from models.causal import CausalWeightor
 from .configs import load_configs
 from .losses import Losses
 from .sample import CoordSampler, DataFactory, FunctionSampler
-from .periodic_cvit import PeriodicCViT
 from .evaluator import evaluate_model
 
 
@@ -97,13 +96,24 @@ def main():
     subkey, key = jax.random.split(key)
     model_params = configs.model_params
     if configs.model_name == "cvit":
-        
+        from .periodic_cvit import PeriodicCViT
         model = PeriodicCViT(
             subkey,
             lx=configs.lx,
             ly=configs.ly,
             **model_params,
         )
+        
+    elif configs.model_name == "deeponet":
+        from .periodic_deeponet import PeriodicDeepONet
+        model = PeriodicDeepONet(
+            subkey,
+            lx=configs.lx,
+            ly=configs.ly,
+            **model_params,
+        )
+    else:
+        raise ValueError(f"Unsupported model name: {configs.model_name}")
         
     ckpt_path = configs.ckpt
     if ckpt_path is not None and os.path.exists(ckpt_path):
