@@ -56,6 +56,7 @@ class PeriodicDeepONet(eqx.Module):
         trunk_mlp_hidden: int = 128,
         trunk_fourier_freq: float = 1.0,
         trunk_emb_dim: int = 128,
+        trunk_use_time_film: bool = True,
         # Common args
         basis_dim: int = 128,
         out_dim: int = 2,
@@ -89,6 +90,7 @@ class PeriodicDeepONet(eqx.Module):
             out_dim=out_dim,
             fourier_freq=trunk_fourier_freq,
             emb_dim=trunk_emb_dim,
+            use_time_film=trunk_use_time_film,
             act=act
         )
         

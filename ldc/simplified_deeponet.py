@@ -131,12 +131,11 @@ class Encoder(eqx.Module):
 class Decoder(eqx.Module):
     """
     Corresponds to the Trunk Net in DeepONet.
-    Encodes coordinates (x, t) into basis functions and computes dot product with Branch Net output.
+    Encodes coordinates x into basis functions and computes dot product with Branch Net output.
     """
     trunk_mlp: Mlp
     bias: jnp.ndarray
     fourier_embs_x: FourierEmbs
-    time_mlp: Mlp
 
     def __init__(
         self,
@@ -148,37 +147,16 @@ class Decoder(eqx.Module):
         out_dim: int,
         fourier_freq: float,
         emb_dim: int,
-        act: str = "gelu",
-        use_time_film: bool = True
+        act: str = "gelu"
     ):
-        k_trunk, k_four, k_time = jr.split(key, 3)
-        
-        # Spatial dimension is coord_dim - 1 (assuming last one is time)
-        spatial_dim = coord_dim - 1
+        k_trunk, k_four = jr.split(key, 2)
         
         self.fourier_embs_x = FourierEmbs(
             key=k_four,
             embed_scale=fourier_freq,
-            embed_dim=emb_dim if use_time_film else emb_dim // 2,
-            input_dim=spatial_dim
+            embed_dim=emb_dim,
+            input_dim=coord_dim
         )
-        
-        if use_time_film:
-            self.time_mlp = Mlp(
-                key=k_time,
-                num_layers=2,
-                hidden_dim=emb_dim,
-                out_dim=emb_dim * 2, # scale + shift
-                in_dim=1,
-                act="gelu"
-            )
-        else:
-            self.time_mlp = FourierEmbs(
-                key=k_time,
-                embed_scale=fourier_freq,
-                embed_dim=emb_dim // 2,
-                input_dim=1
-            )
 
         self.trunk_mlp = Mlp(
             key=k_trunk,
@@ -190,22 +168,11 @@ class Decoder(eqx.Module):
         )
         self.bias = jnp.zeros(out_dim)
 
-    def __call__(self, branch_out, x, t):
+    def __call__(self, branch_out, x):
         # branch_out: (out_dim, basis_dim) - Coefficients from Encoder
         # x: (N_query, spatial_dim)
-        # t: (N_query, 1)
         
-        x_emb = self.fourier_embs_x(x) # (N_query, emb_dim)
-        if isinstance(self.time_mlp, Mlp):
-            # FiLM modulation
-            t_emb = jax.vmap(self.time_mlp)(t) # (N_query, emb_dim * 2)
-            scale, shift = jnp.split(t_emb, 2, axis=-1)
-            features = x_emb * (1 + scale) + shift # (N_query, emb_dim)
-        else:
-            # Fourier embedding for time
-            t_emb = self.time_mlp(t) # (N_query, emb_dim // 2)
-            features = jnp.concatenate([x_emb, t_emb], axis=-1) # (N_query, emb_dim)
-            
+        features = self.fourier_embs_x(x) # (N_query, emb_dim)
         # Evaluate basis functions at coordinates (Trunk Net)
         trunk_out = jax.vmap(self.trunk_mlp)(features) # (N_query, basis_dim)
         
@@ -240,12 +207,11 @@ class DeepONet(eqx.Module):
         trunk_mlp_hidden: int = 128,
         trunk_fourier_freq: float = 1.0,
         trunk_emb_dim: int = 128,
-        trunk_use_time_film: bool = True,
         # Common args
         basis_dim: int = 128,
         out_dim: int = 2,
-        coord_dim: int = 3, # x(2) + t(1)
-        act: str = "gelu",
+        coord_dim: int = 2, # x(2)
+        act: str = "gelu"
     ):
         k_enc, k_dec = jr.split(key)
         
@@ -273,40 +239,17 @@ class DeepONet(eqx.Module):
             out_dim=out_dim,
             fourier_freq=trunk_fourier_freq,
             emb_dim=trunk_emb_dim,
-            act=act,
-            use_time_film=trunk_use_time_film
+            act=act
         )
 
-    def __call__(self, u, x, t):
+    def __call__(self, u, x):
         # u: (C, H, W)
         # x: (N_query, spatial_dim)
-        # t: (N_query, 1)
         
         # Branch Net execution
         coeffs = self.encoder(u) # (out_dim, basis_dim)
         
         # Trunk Net execution + Combination
-        out = self.decoder(coeffs, x, t) # (N_query, out_dim)
+        out = self.decoder(coeffs, x) # (N_query, out_dim)
         
         return out
-
-if __name__ == "__main__":
-    key = jr.PRNGKey(0)
-    model = DeepONet(key, in_channels=1, out_dim=2, grid_size=(224, 224))
-
-    # Dummy input
-    k_img, k_x, k_t = jr.split(key, 3)
-    u = jr.normal(k_img, (16, 1, 224, 224)) # B, C=1, H, W
-
-    x_coord = jr.uniform(k_x, (100, 2), minval=0.0, maxval=1.0)  # (N_query, 2)
-    t_coord = jr.uniform(k_t, (100, 1), minval=0.0, maxval=1.0)  # (N_query, 1)
-    
-    u = u.astype(jnp.float32)
-    x_coord = x_coord.astype(jnp.float32)
-    t_coord = t_coord.astype(jnp.float32)
-    
-    # vmap over batch dimension (0) for u, but keep coords shared (None) or batched depending on use case
-    # Here assuming standard operator learning setup: same coords for one u, or different coords.
-    # Following CViT example: vmap over batch of u.
-    output = jax.vmap(model, in_axes=(0, None, None))(u, x_coord, t_coord)  # (B, N_query, out_dim)
-    print("Output shape:", output.shape)

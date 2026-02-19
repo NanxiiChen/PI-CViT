@@ -22,7 +22,7 @@ from models.causal import CausalWeightor
 from .configs import load_configs
 from .losses import Losses
 from .sample import CoordSampler, DataFactory, FunctionSampler
-from .simplified_cvit import CViT
+
 from .evaluator import evaluate_model
 
 
@@ -94,8 +94,14 @@ def main():
     subkey, key = jax.random.split(key)
     model_params = configs.model_params
     if configs.model_name == "cvit":
-        
+        from .simplified_cvit import CViT
         model = CViT(
+            subkey,
+            **model_params,
+        )
+    elif configs.model_name == "deeponet":
+        from .simplified_deeponet import DeepONet
+        model = DeepONet(
             subkey,
             **model_params,
         )

@@ -41,6 +41,7 @@ class Config:
         trunk_mlp_hidden=512,
         trunk_fourier_freq=2.0,
         trunk_emb_dim=512,
+        trunk_use_time_film=True,
 
         # Common args
         basis_dim=512,
