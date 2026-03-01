@@ -36,6 +36,18 @@
             ]
         },
         {
+            "name": "swe-pi-fno",
+            "type": "debugpy",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "module": "swe.train_pifno",
+            "args": [
+                "--configs",
+                "train_fno"
+            ]
+        },
+        {
             "name": "Python 调试程序: wave",
             "type": "debugpy",
             "request": "launch",
