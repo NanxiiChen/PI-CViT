@@ -8,12 +8,12 @@ from models.causal import CausalWeightor
 from models.fno import FNO
 
 
-def _fft_k(n: int, length: float, dtype=jnp.float32):
+def _fft_k(n: int, length, dtype=jnp.float32):
     # cycles -> radians
     return (2.0 * jnp.pi) * jnp.fft.fftfreq(n, d=length / n).astype(dtype)
 
 
-def _spectral_grad_lap_2d(u: jnp.ndarray, lx: float, ly: float):
+def _spectral_grad_lap_2d(u: jnp.ndarray, lx, ly):
     """
     u: (..., Nx, Ny)  # 与模型一致: ij / (x,y)
     return: ux, uy, lap with same shape
@@ -36,7 +36,7 @@ def _spectral_grad_lap_2d(u: jnp.ndarray, lx: float, ly: float):
     return ux, uy, lap
 
 
-def _time_derivative_fd(x: jnp.ndarray, dt: float):
+def _time_derivative_fd(x: jnp.ndarray, dt):
     """
     x: (B, T, Nx, Ny)
     """
@@ -48,7 +48,7 @@ def _time_derivative_fd(x: jnp.ndarray, dt: float):
 
 
 def _burgers_rhs_normalized_time(
-    state: jnp.ndarray, nu: float, lx: float, ly: float, lc: float, tc: float
+    state: jnp.ndarray, nu, lx, ly, lc, tc
 ):
     """
     state: (..., 2, Nx, Ny), normalized time tau in [0,1]
@@ -92,7 +92,7 @@ class Losses(eqx.Module):
         cfg: Any,
         **kwargs,
     ) -> Tuple[jnp.ndarray, dict]:
-        pred = jax.vmap(model)(u0)  # (B, C, T, Nx, Ny), 对应 t1..tT
+        pred = jax.vmap(model)(u0)  # (B, C, T, Nx, Ny), 统一约定：对应 t1..tT
         if pred.ndim != 5:
             raise ValueError(f"FNO output must be (B,C,T,Nx,Ny), got {pred.shape}")
         if pred.shape[1] != 2:
@@ -102,15 +102,17 @@ class Losses(eqx.Module):
         if t < 1:
             raise ValueError("pred must contain at least one future step")
 
-        # 关键：把 u0 拼回时间序列
+        # 统一约定：显式拼接 t=0 初值，形成完整时间序列 [t0, t1, ..., tT]
         pred_full = jnp.concatenate([u0[:, :, None, :, :], pred], axis=2)  # (B,C,T+1,Nx,Ny)
 
-        nu = float(getattr(cfg, "nu", 0.01))
-        lc = float(getattr(cfg, "Lc", 1.0))
-        tc = float(getattr(cfg, "Tc", 1.0))
-        lx = float(getattr(cfg, "lx", 1.0))
-        ly = float(getattr(cfg, "ly", 1.0))
-        dt = float(getattr(cfg, "dt", 1.0 / t))
+        nu = getattr(cfg, "nu", 0.01)
+        lc = getattr(cfg, "Lc", 1.0)
+        tc = getattr(cfg, "Tc", 1.0)
+        lx = getattr(cfg, "lx", 1.0)
+        ly = getattr(cfg, "ly", 1.0)
+
+        # 统一时间步长：pred 有 T 帧未来时间 => dt = 1/T
+        dt = 1.0 / t
 
         if self.time_scheme == "fd":
             u = pred_full[:, 0, :, :, :]  # (B,T+1,Nx,Ny)
@@ -125,9 +127,8 @@ class Losses(eqx.Module):
             ru = ut / tc + (u * ux + v * uy) / lc - nu * lap_u / (lc**2)
             rv = vt / tc + (u * vx + v * vy) / lc - nu * lap_v / (lc**2)
 
-            # 只对预测时刻 t1..tT 计损失
             res_sq_t = jnp.mean(ru[:, 1:] ** 2 + rv[:, 1:] ** 2, axis=(-2, -1))  # (B,T)
-            ts = jnp.linspace(dt, dt * t, t).reshape(-1, 1)
+            ts = (jnp.arange(1, t + 1, dtype=pred.dtype) * dt).reshape(-1, 1)
 
         else:  # rk4
             states = jnp.swapaxes(pred_full, 1, 2)  # (B,T+1,C,Nx,Ny)
@@ -146,15 +147,15 @@ class Losses(eqx.Module):
             s_rk4 = s_n + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
             defect = s_np1 - s_rk4  # (B,T,C,Nx,Ny)
 
-            res_sq_t = jnp.mean(defect**2, axis=(-3, -2, -1))  # (B,T)
-            ts = jnp.linspace(dt, dt * t, t).reshape(-1, 1)
+            res_sq_t = jnp.mean(defect[:, :, 0] ** 2 + defect[:, :, 1] ** 2, axis=(-2, -1))  # (B,T)
+            ts = (jnp.arange(1, t + 1, dtype=pred.dtype) * dt).reshape(-1, 1)
 
         # -------------------------
         # causal / non-causal
         # -------------------------
         if bool(getattr(cfg, "use_causality", False)) and self.causal_weightor is not None:
-            eps = float(kwargs.get("causal_eps", 0.1))
-            residuals_for_causal = jnp.sqrt(jnp.clip(res_sq_t, a_min=0.0))  # (B,Nt)
+            eps = kwargs.get("causal_eps", None)
+            residuals_for_causal = jnp.sqrt(jnp.clip(res_sq_t, a_min=1e-30))
             loss, loss_chunks, causal_weights = self.causal_weightor.compute_causal_loss(
                 residuals_for_causal, ts, eps=eps
             )
@@ -177,12 +178,10 @@ class Losses(eqx.Module):
     ):
         vg_fn = eqx.filter_value_and_grad(self.loss_pde, has_aux=True)
         (loss, aux), grad = vg_fn(model, u0=u0, cfg=cfg, **kwargs)
-        # 保持与原 losses.py 类似的返回风格
         return (loss, aux), grad
     
     
 if __name__ == "__main__":
-    # 简单测试
     from models.causal import CausalWeightor
     from models.fno import FNO
 

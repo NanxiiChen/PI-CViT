@@ -31,26 +31,17 @@ def train_step(
     state: optax.OptState,
     optimizer: optax.GradientTransformation,
     batch_u: jnp.ndarray,
-    x_pde: jnp.ndarray,
-    t_pde: jnp.ndarray,
     cfg: dict,
-    last_weights: jnp.ndarray,
-    alpha_w: float, 
-    weight_coef: jnp.array = jnp.array([1.0, 1.0]),
-    active_losses: Tuple[str] = ("loss_pde", "loss_ic", ),
     **kwargs
 ):
-    (total_loss, (losses, weights, aux_vars)), total_grad = loss_fn(
-        model, batch_u, 
-        x_pde, t_pde, cfg, 
-        last_weights, alpha_w,
-        weight_coef, active_losses, 
+    (total_loss, aux_vars), total_grad = loss_fn(
+        model, batch_u, cfg, 
         **kwargs
     )
     total_grad = jax.tree.map(lambda x: jnp.nan_to_num(x), total_grad)
     updates, new_state = optimizer.update(total_grad, state, model)
     new_model = eqx.apply_updates(model, updates)
-    return new_model, new_state, total_loss, losses, weights, aux_vars
+    return new_model, new_state, total_loss, aux_vars
 
 
 def main():
@@ -81,13 +72,15 @@ def main():
         lx=configs.lx, ly=configs.ly, 
         length_scale=configs.length_scale,
         amplitude=configs.amplitude,
-        grid_size=(configs.Nx, configs.Nx),
+        grid_size=(configs.Nx, configs.Ny),
         num_u_samples=configs.num_u_samples
     )
     
     subkey, key = jax.random.split(key)
     model_params = configs.model_params
-    model = get_model(subkey, model_params)
+    # model = get_model(subkey, model_params)
+    from models.fno import FNO
+    model = FNO(subkey, **model_params)
 
     ckpt_path = configs.ckpt
     if ckpt_path is not None and os.path.exists(ckpt_path):
@@ -99,14 +92,15 @@ def main():
         num_chunks=configs.causality_params["num_chunks"],
         t_range=configs.temporal_domain,
     )
-    losses = Losses(causal_weightor=None, time_scheme=configs.time_scheme)
+    losses = Losses(
+        causal_weightor=causal_weightor if configs.use_causality else None,
+        time_scheme=configs.time_scheme
+    )
     # !!! make `causal_eps` jax array, 
     # !!! so that it can be traced in jit
     # !!! otherwise, it will cause jit compilation every time when `causal_eps` is updated
     causal_eps = jnp.array(configs.causality_params["initial_eps"])
     loss_fn = losses.loss_fn
-    active_loss_names = configs.active_loss_names
-    active_losses = tuple(f"loss_{name}" for name in active_loss_names)
     
     optimizer = get_optimizer(
         optimizer_name=configs.optimizer_name,
@@ -149,14 +143,13 @@ def main():
             plt.close(fig)
             
         
-        model, opt_state, total_loss, loss_values, weights, aux_vars = train_step(
+        model, opt_state, total_loss, aux_vars = train_step(
             model,
             loss_fn,
             opt_state,
             optimizer,
             batch_u,
             configs,
-            configs.alpha_w,
             causal_eps=causal_eps,
         )
 
@@ -190,16 +183,10 @@ def main():
         if epoch % configs.log_every == 0:
             print(
                 f"Epoch {epoch}/{epochs}, "
-                f"Each loss: {', '.join([f'{lv:.4e}' for lv in loss_values])}, "
-                f"Each weight: {', '.join([f'{w:.4e}' for w in weights])}, "
+                f"Total Loss: {total_loss:.4e}, "
             )
 
             writer.add_scalar("loss/total", total_loss.item(), epoch)
-            for i, lv in enumerate(loss_values):
-                writer.add_scalar(f"loss/loss_{active_loss_names[i]}", lv.item(), epoch)
-            for i, w in enumerate(weights):
-                writer.add_scalar(f"weight/weight_{active_loss_names[i]}", w.item(), epoch)
-
             writer.flush()
 
         if epoch % configs.save_every == 0:

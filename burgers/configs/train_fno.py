@@ -25,16 +25,17 @@ class Config:
         in_channels=2,
         out_channels=2,
         time_steps=100,
-        mode_t=8,
-        mode_x=16,
-        mode_y=16,
+        modes_t=8,
+        modes_x=8,
+        modes_y=8,
+        width=32,
         depth=8,
         activation="gelu",
         add_coords=True,
         padding=(10, 0, 0) # padding for (t, x, y)
     )
     time_scheme = "rk4" # rk4 or fd
-    use_causality = False
+    use_causality = True
     causality_params = dict(
         num_chunks=24,
         initial_eps=1e-2,
@@ -61,17 +62,10 @@ class Config:
     decay_rate = 0.95
     min_lr = 1e-5
     save_every = 500
-    log_every = 50
-    test_every = 500
-    resample_u_every = 100
-    warmup_epochs = 1000
+    log_every = 5
+    test_every = 25
+    resample_u_every = 25
+    warmup_epochs = 0
+    num_u_samples = 16
     
     nu = 0.01
-
-    @property
-    def h_val(self):
-        return 100 / self.N_val
-
-    @property
-    def epsilon(self):
-        return 6 * self.h_val / (2 * jnp.sqrt(2) * jnp.arctanh(0.9))

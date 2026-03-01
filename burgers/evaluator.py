@@ -234,7 +234,7 @@ def evaluate_fno_model(
     )
     ref_sols = ref_sols[:, idxs, ...] # B, T, C, H, W
 
-    B, C, T, Nx, Ny = ref_sols.shape
+    B, T, C, Nx, Ny = ref_sols.shape
     us = ref_sols[:, 0, ...] # B, C=2, H, W
     # we transpose us to (B, C, Nx, Ny) to match the FNO input format
     us = jnp.transpose(us, (0, 1, 3, 2)) # B, C=2, W, H
@@ -244,6 +244,11 @@ def evaluate_fno_model(
     
     sols = jax.vmap(model)(us) # B, C, T, W, H
     sols = jnp.concatenate([us[:, :, None, :, :], sols], axis=2) # B, C, T+1, W, H
+    pred_times = jnp.linspace(0, 1.0, sols.shape[2]) * Tc # (T+1,)
+    pred_idxs = jnp.array(
+        [jnp.argmin(jnp.abs(pred_times - t)) for t in target_ts]
+    )
+    sols = sols[:, :, pred_idxs, :, :] # B, C, T, W, H
     
     sols = rearrange(
         sols, "b c t w h -> b t c h w", h=int(Ny), w=int(Nx)
@@ -269,7 +274,7 @@ def evaluate_fno_model(
         ax.set_axis_off()
         ax.contourf(
             xx, yy,
-            ref_sols[batch_th, channel_th, i, :, :],
+            ref_sols[batch_th, i, channel_th, :, :],
             levels=50,
             cmap="RdBu_r",
         )
@@ -317,7 +322,7 @@ def evaluate_fno_model(
         ax = axes[2, i]
         ax.set_axis_off()
         diff = jnp.abs(
-            ref_sols[batch_th, channel_th, i, :, :]
+            ref_sols[batch_th, i, channel_th, :, :]
             - sols[batch_th, i, channel_th, :, :]
         )
         diff_cont = ax.contourf(
