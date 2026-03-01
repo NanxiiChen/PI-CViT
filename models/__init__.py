@@ -8,13 +8,18 @@ def get_model(model_name, key, in_channels, out_dim, **kwargs):
 
     if model_name.lower() == "cvit":
         from .cvit import CViT
-
         return CViT(key, in_channels=in_channels, out_dim=out_dim, **kwargs)
 
     elif model_name.lower() == "deeponet":
         from .deeponet import DeepONet
-
         return DeepONet(key, in_channels=in_channels, out_dim=out_dim, **kwargs)
+    
+    elif model_name.lower() == "fno":
+        from .fno import FNO
+        return FNO(key, **kwargs)
+    
+    else:
+        raise ValueError(f"Model {model_name} not recognized.")
 
 
 def get_optimizer(

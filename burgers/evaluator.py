@@ -212,3 +212,146 @@ def evaluate_model(
         y=1.02,
     )
     return fig, total_l2
+
+
+def evaluate_fno_model(
+    model: eqx.Module,
+    target_ts: List[float],
+    data_dir: str,
+    Lc: float,
+    Tc: float,
+    key: jax.random.PRNGKey,
+    **kwargs,
+):
+    # For FNO, we can directly feed in the initial condition and get the solution at target times.
+    data = jnp.load(f"{data_dir}/burgers_solutions.npz")
+    x = data["x"]  # (W,)
+    y = data["y"]  # (H,)
+    fft_times = data["times"]  # (T,)
+    ref_sols = data["solutions"]    
+    idxs = jnp.array(
+        [jnp.argmin(jnp.abs(fft_times - t)) for t in target_ts]
+    )
+    ref_sols = ref_sols[:, idxs, ...] # B, T, C, H, W
+
+    B, C, T, Nx, Ny = ref_sols.shape
+    us = ref_sols[:, 0, ...] # B, C=2, H, W
+    # we transpose us to (B, C, Nx, Ny) to match the FNO input format
+    us = jnp.transpose(us, (0, 1, 3, 2)) # B, C=2, W, H
+    xx, yy = jnp.meshgrid(x, y, indexing="xy")  # (H, W)
+    xx = xx / Lc
+    yy = yy / Lc
+    
+    sols = jax.vmap(model)(us) # B, C, T, W, H
+    sols = jnp.concatenate([us[:, :, None, :, :], sols], axis=2) # B, C, T+1, W, H
+    
+    sols = rearrange(
+        sols, "b c t w h -> b t c h w", h=int(Ny), w=int(Nx)
+    )
+    fig, axes = plt.subplots(
+        3,
+        len(target_ts),
+        figsize=(1.5 * len(target_ts), 5),
+        subplot_kw={
+            "aspect": "equal",
+        },
+    )
+    batch_key, channel_key = jax.random.split(key)
+    batch_th = jax.random.randint(
+        batch_key, (), 0, B
+    )
+    channel_th = jax.random.randint(
+        channel_key, (), 0, C
+    )
+    notation = "u" if channel_th == 0 else "v"
+    for i, tic in enumerate(target_ts):
+        ax = axes[0, i]
+        ax.set_axis_off()
+        ax.contourf(
+            xx, yy,
+            ref_sols[batch_th, channel_th, i, :, :],
+            levels=50,
+            cmap="RdBu_r",
+        )
+        if i == 0:
+            ax.text(
+                -0.01,
+                0.5,
+                f"Ref. {notation}",
+                rotation=90,
+                va="center",
+                ha="right",
+                transform=ax.transAxes,
+            )
+        ax.text(
+            0.5,
+            1.05,
+            rf"$t={tic:.1f}\mathrm{{s}}$",
+            va="bottom",
+            ha="center",
+            transform=ax.transAxes,
+        )
+        
+
+    
+        ax = axes[1, i]
+        ax.set_axis_off() 
+        ax.contourf(
+            xx, yy,
+            sols[batch_th, i, channel_th, :, :],
+            levels=50,
+            cmap="RdBu_r",
+        )
+        
+        if i == 0:
+            ax.text(
+                -0.01,
+                0.5,
+                f"Pred. {notation}",
+                rotation=90,
+                va="center",
+                ha="right",
+                transform=ax.transAxes,
+            )
+            
+        ax = axes[2, i]
+        ax.set_axis_off()
+        diff = jnp.abs(
+            ref_sols[batch_th, channel_th, i, :, :]
+            - sols[batch_th, i, channel_th, :, :]
+        )
+        diff_cont = ax.contourf(
+            xx, yy,
+            diff,
+            levels=50,
+            cmap="viridis",
+        )
+        
+        if i == 0:
+            ax.text(
+                -0.01,
+                0.5,
+                r"Abs. Error $|\phi - \hat{\phi}|$",
+                rotation=90,
+                va="center",
+                ha="right",
+                transform=ax.transAxes,
+            )
+            
+        colorbar = fig.colorbar(
+            diff_cont, ax=ax, fraction=0.046, pad=0.04, orientation="horizontal",
+            format="%.3f", ticks=jnp.linspace(0, jnp.max(diff), num=3)
+        )
+        
+    total_l2 = jnp.sqrt(jnp.sum((ref_sols - sols) ** 2, axis=(1, 3, 4))) / jnp.sqrt(
+        jnp.sum(ref_sols**2, axis=(1, 3, 4))
+    )
+    total_l2 = jnp.mean(total_l2)
+    fig.subplots_adjust(
+        left=0.03, right=0.97, top=0.95, bottom=0.03, hspace=0.1, wspace=0.1
+    )
+    fig.suptitle(
+        f"Exam. {batch_th}, Var. {notation}, Rel. L2 Error: {total_l2:.2e}",
+        y=1.02,
+    )
+    return fig, total_l2
