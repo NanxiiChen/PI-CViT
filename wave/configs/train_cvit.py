@@ -80,12 +80,3 @@ class Config:
     num_ic_samples = 1024
     num_rar_samples = 0
     num_rar_pools = 0 # too slow to compute huge pool prediction, and no apparent benefit
-
-
-    @property
-    def h_val(self):
-        return 100 / self.N_val
-
-    @property
-    def epsilon(self):
-        return 6 * self.h_val / (2 * jnp.sqrt(2) * jnp.arctanh(0.9))
