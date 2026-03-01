@@ -7,16 +7,17 @@ from jax.nn.initializers import glorot_normal
 
 
 def _grid_2d(nx: int, ny: int, dtype=jnp.float32):
-    x = jnp.linspace(0.0, 1.0, nx, dtype=dtype)
-    y = jnp.linspace(0.0, 1.0, ny, dtype=dtype)
+    x = jnp.linspace(0.0, 1.0, nx, dtype=dtype, endpoint=False)
+    y = jnp.linspace(0.0, 1.0, ny, dtype=dtype, endpoint=False)
     xx, yy = jnp.meshgrid(x, y, indexing="ij")  # (nx, ny)
     return jnp.stack([xx, yy], axis=0)  # (2, nx, ny)
 
 
 def _grid_3d(nt: int, nx: int, ny: int, dtype=jnp.float32):
-    t = jnp.linspace(0.0, 1.0, nt, dtype=dtype)
-    x = jnp.linspace(0.0, 1.0, nx, dtype=dtype)
-    y = jnp.linspace(0.0, 1.0, ny, dtype=dtype)
+    # 统一时间语义：模型输出对应 t=1/nt, 2/nt, ..., 1.0（不包含 t=0）
+    t = jnp.arange(1, nt + 1, dtype=dtype) / jnp.asarray(nt, dtype=dtype)
+    x = jnp.linspace(0.0, 1.0, nx, dtype=dtype, endpoint=False)
+    y = jnp.linspace(0.0, 1.0, ny, dtype=dtype, endpoint=False)
     tt, xx, yy = jnp.meshgrid(t, x, y, indexing="ij")  # (nt, nx, ny)
     return jnp.stack([tt, xx, yy], axis=0)  # (3, nt, nx, ny)
 
@@ -245,8 +246,8 @@ class FNOBlock3d(eqx.Module):
 class FNO(eqx.Module):
     """
     one-shot spatio-temporal predictor
-    input:  u0, shape (C, nx, ny)
-    output: u,  shape (C, T, nx, ny)
+    input:  u0, shape (C, nx, ny), 对应 t=0
+    output: u,  shape (C, T, nx, ny), 对应 t=1/T,2/T,...,1.0
     """
 
     lifting: eqx.nn.Conv3d
