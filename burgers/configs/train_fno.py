@@ -36,14 +36,6 @@ class Config:
     )
     time_scheme = "rk4" # rk4 or fd
     use_causality = True
-    causality_params = dict(
-        num_chunks=24,
-        initial_eps=1e-2,
-        max_eps=5.0,
-        step_size=5.0,
-        min_mean_weight=0.2,
-        max_min_weight=0.99,
-    )
     
     max_grad_norm = 1.0
     optimizer_name = "soap"
