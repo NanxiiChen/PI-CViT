@@ -228,9 +228,9 @@ def main():
             )
             writer.add_scalar("loss/total", total_loss.item(), epoch)
             for i, lv in enumerate(loss_values):
-                writer.add_scalar(f"loss/{active_losses[i]}", lv.item(), epoch)
+                writer.add_scalar(f"loss/loss_{active_loss_names[i]}", lv.item(), epoch)
             for i, w in enumerate(weights):
-                writer.add_scalar(f"weight/{active_losses[i]}", w.item(), epoch)
+                writer.add_scalar(f"weight/weight_{active_loss_names[i]}", w.item(), epoch)
             writer.flush()
 
         if epoch % configs.save_every == 0:

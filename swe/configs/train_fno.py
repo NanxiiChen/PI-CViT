@@ -36,7 +36,7 @@ class Config:
         padding=(10, 0, 0) # padding for (t, x, y)
     )
     time_scheme = "rk4" # rk4 or fd
-    use_causality = False
+    use_causality = True
     max_grad_norm = 1.0
     optimizer_name = "soap"
     causality_params = dict(

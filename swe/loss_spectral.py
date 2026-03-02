@@ -52,16 +52,18 @@ class Losses(eqx.Module):
         cfg: Any,
         **kwargs,
     ) -> Tuple[jnp.ndarray, dict]:
-        pred = jax.vmap(model)(u0)  # (B,3,T,Nx,Ny), 对应未来时间片
+        pred = jax.vmap(model)(u0)  # (B,3,T,Nx,Ny), 对应 t1..tT
         if pred.ndim != 5 or pred.shape[1] != 3:
             raise ValueError(f"SWE expects (B,3,T,Nx,Ny), got {pred.shape}")
         t = pred.shape[2]
-        if t < 2:
-            raise ValueError("Need T>=2 for temporal derivative in spectral loss.")
+        if t < 1:
+            raise ValueError("Need T>=1 for temporal derivative in spectral loss.")
 
-        h = pred[:, 0]
-        u = pred[:, 1]
-        v = pred[:, 2]
+        # [t0, t1, ..., tT]
+        pred_full = jnp.concatenate([u0[:, :, None, :, :], pred], axis=2)  # (B,3,T+1,Nx,Ny)
+        h = pred_full[:, 0]  # (B,T+1,Nx,Ny)
+        u = pred_full[:, 1]
+        v = pred_full[:, 2]
 
         H = getattr(cfg, "H_val", 1.0)
         lc = getattr(cfg, "Lc", 1.0)
@@ -75,7 +77,7 @@ class Losses(eqx.Module):
         _, vy = _spectral_grad_2d(v, lx=lx, ly=ly)
 
         r_cont = ht / tc + H * (ux + vy) / lc
-        res_sq_t = jnp.mean(r_cont**2, axis=(-2, -1))  # (B,T)
+        res_sq_t = jnp.mean(r_cont[:, 1:] ** 2, axis=(-2, -1))  # 仅 t1..tT
         ts = (jnp.arange(1, t + 1, dtype=pred.dtype) * dt).reshape(-1, 1)
 
         if bool(getattr(cfg, "use_causality", False)) and self.causal_weightor is not None:
@@ -102,16 +104,18 @@ class Losses(eqx.Module):
         cfg: Any,
         **kwargs,
     ) -> Tuple[jnp.ndarray, dict]:
-        pred = jax.vmap(model)(u0)  # (B,3,T,Nx,Ny)
+        pred = jax.vmap(model)(u0)  # (B,3,T,Nx,Ny), 对应 t1..tT
         if pred.ndim != 5 or pred.shape[1] != 3:
             raise ValueError(f"SWE expects (B,3,T,Nx,Ny), got {pred.shape}")
         t = pred.shape[2]
-        if t < 2:
-            raise ValueError("Need T>=2 for temporal derivative in spectral loss.")
+        if t < 1:
+            raise ValueError("Need T>=1 for temporal derivative in spectral loss.")
 
-        h = pred[:, 0]
-        u = pred[:, 1]
-        v = pred[:, 2]
+        # [t0, t1, ..., tT]
+        pred_full = jnp.concatenate([u0[:, :, None, :, :], pred], axis=2)  # (B,3,T+1,Nx,Ny)
+        h = pred_full[:, 0]  # (B,T+1,Nx,Ny)
+        u = pred_full[:, 1]
+        v = pred_full[:, 2]
 
         f = getattr(cfg, "f_val", 10.0)
         g = getattr(cfg, "g_val", 1.0)
@@ -128,12 +132,12 @@ class Losses(eqx.Module):
         r_u = ut / tc - f * v + g * hx / lc
         r_v = vt / tc + f * u + g * hy / lc
 
-        res_sq_t = jnp.mean(r_u**2 + r_v**2, axis=(-2, -1))  # (B,T)
+        res_sq_t = jnp.mean(r_u[:, 1:] ** 2 + r_v[:, 1:] ** 2, axis=(-2, -1))  # 仅 t1..tT
         ts = (jnp.arange(1, t + 1, dtype=pred.dtype) * dt).reshape(-1, 1)
 
         if bool(getattr(cfg, "use_causality", False)) and self.causal_weightor is not None:
             eps = kwargs.get("causal_eps", None)
-            residuals_for_causal = jnp.sqrt(res_sq_t)
+            residuals_for_causal = jnp.sqrt(jnp.clip(res_sq_t, a_min=1e-30))
             loss, loss_chunks, causal_weights = self.causal_weightor.compute_causal_loss(
                 residuals_for_causal, ts, eps=eps
             )
