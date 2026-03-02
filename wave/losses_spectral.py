@@ -32,14 +32,28 @@ def _spectral_lap_2d(u: jnp.ndarray, lx, ly):
 
 def _time_second_derivative_fd(x: jnp.ndarray, dt):
     """
-    x: (B, T, Nx, Ny), T>=3
-    二阶差分近似 d2x/dtau2 (tau in [0,1])
+    x: (B, T, Nx, Ny), 这里 T 是时间长度（例如 pred_full 的 T+1）
+    返回 d2x/dtau2
     """
+    n = x.shape[1]
+    if n < 3:
+        raise ValueError("Need at least 3 time points for second derivative.")
+
+    h2 = dt**2
     xtt = jnp.zeros_like(x)
-    xtt = xtt.at[:, 1:-1].set((x[:, 2:] - 2.0 * x[:, 1:-1] + x[:, :-2]) / (dt**2))
-    # 边界使用单边二阶
-    xtt = xtt.at[:, 0].set((x[:, 2] - 2.0 * x[:, 1] + x[:, 0]) / (dt**2))
-    xtt = xtt.at[:, -1].set((x[:, -1] - 2.0 * x[:, -2] + x[:, -3]) / (dt**2))
+
+    # interior: 二阶中心差分
+    xtt = xtt.at[:, 1:-1].set((x[:, 2:] - 2.0 * x[:, 1:-1] + x[:, :-2]) / h2)
+
+    if n >= 4:
+        # boundary: 二阶单边差分（比原实现更合理）
+        xtt = xtt.at[:, 0].set((2.0 * x[:, 0] - 5.0 * x[:, 1] + 4.0 * x[:, 2] - x[:, 3]) / h2)
+        xtt = xtt.at[:, -1].set((2.0 * x[:, -1] - 5.0 * x[:, -2] + 4.0 * x[:, -3] - x[:, -4]) / h2)
+    else:
+        # n==3 退化情形
+        xtt = xtt.at[:, 0].set((x[:, 2] - 2.0 * x[:, 1] + x[:, 0]) / h2)
+        xtt = xtt.at[:, -1].set((x[:, -1] - 2.0 * x[:, -2] + x[:, -3]) / h2)
+
     return xtt
 
 
