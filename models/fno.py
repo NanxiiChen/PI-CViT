@@ -99,14 +99,14 @@ class FNO2d(eqx.Module):
 
     def __init__(
         self,
+        key,
         in_channels,
         out_channels,
         modes_x,
         modes_y,
         width,
         depth,
-        activation=jax.nn.gelu,
-        key=jax.random.PRNGKey(0),
+        activation: Callable | str = jax.nn.gelu,
         add_coords: bool = True,
         padding: tuple[int, int] = (0, 0),
     ):
@@ -118,9 +118,11 @@ class FNO2d(eqx.Module):
         self.lifting = eqx.nn.Conv2d(
             lift_in, width, kernel_size=(1, 1), key=lifting_key
         )
-
+        act_fn = (
+            getattr(jax.nn, activation) if isinstance(activation, str) else activation
+        )
         self.fno_blocks = [
-            FNOBlock2d(width, width, modes_x, modes_y, activation, block_keys[i])
+            FNOBlock2d(width, width, modes_x, modes_y, act_fn, block_keys[i])
             for i in range(depth)
         ]
 

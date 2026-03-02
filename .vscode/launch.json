@@ -36,12 +36,12 @@
             ]
         },
         {
-            "name": "swe-pi-fno",
+            "name": "ldc-pi-fno",
             "type": "debugpy",
             "request": "launch",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "module": "swe.train_pifno",
+            "module": "ldc.train_pifno",
             "args": [
                 "--configs",
                 "train_fno"
