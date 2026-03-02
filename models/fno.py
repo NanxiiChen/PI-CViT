@@ -95,6 +95,7 @@ class FNO2d(eqx.Module):
     fno_blocks: List[FNOBlock2d]
     projection: eqx.nn.Conv2d
     add_coords: bool
+    padding: tuple[int, int]  # padding for (x, y)
 
     def __init__(
         self,
@@ -107,8 +108,10 @@ class FNO2d(eqx.Module):
         activation=jax.nn.gelu,
         key=jax.random.PRNGKey(0),
         add_coords: bool = True,
+        padding: tuple[int, int] = (0, 0),
     ):
         self.add_coords = add_coords
+        self.padding = padding
         lift_in = in_channels + (2 if add_coords else 0)
 
         lifting_key, proj_key, *block_keys = jax.random.split(key, depth + 2)
@@ -131,11 +134,28 @@ class FNO2d(eqx.Module):
             _, nx, ny = x.shape
             grid = _grid_2d(nx, ny, dtype=x.dtype)
             x = jnp.concatenate([x, grid], axis=0)
+        else:
+            _, nx, ny = x.shape
 
         x = self.lifting(x)
+
+        # optional one-sided padding on (x, y)
+        if any(p > 0 for p in self.padding):
+            pad_x, pad_y = self.padding
+            x = jnp.pad(
+                x,
+                ((0, 0), (0, pad_x), (0, pad_y)),
+                mode="constant",
+            )
+
         for block in self.fno_blocks:
             x = block(x)
-        return self.projection(x)
+
+        x = self.projection(x)
+
+        # crop back to original spatial size
+        x = x[:, :nx, :ny]
+        return x
 
 
 # =========================
