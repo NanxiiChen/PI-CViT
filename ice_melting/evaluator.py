@@ -212,3 +212,111 @@ def evaluate_model(
         left=0.03, right=0.97, top=0.95, bottom=0.03, hspace=0.1, wspace=0.1
     )
     return fig, total_l2
+
+
+def evaluate_fno_model(
+    model: eqx.Module,
+    target_ts: List[float],
+    data_dir: str,
+    Lc: float,
+    Tc: float,
+    key: jax.random.PRNGKey,
+    **kwargs,
+):
+    # 数据读取（与当前 ice_melting evaluate_model 保持一致）
+    ref_sols_all = jnp.load(f"{data_dir}/solutions.npy")      # (B, fem_steps, C, H, W)
+    fem_times = jnp.load(f"{data_dir}/times.npy")             # (fem_steps,)
+    mesh_grids = jnp.load(f"{data_dir}/mesh_points.npy")      # (2, H, W)
+
+    idxs = jnp.array([jnp.argmin(jnp.abs(fem_times - t)) for t in target_ts])
+    ref_sols = ref_sols_all[:, idxs, :, :, :]                 # (B, T_tar, C, H, W)
+
+    B, T_tar, C, H, W = ref_sols.shape
+    if C != 1:
+        raise ValueError(f"Ice melting expects C=1, got C={C}")
+
+    # FNO 输入：t0
+    u0 = ref_sols[:, 0, :, :, :]                              # (B,1,H,W)
+    u0 = jnp.transpose(u0, (0, 1, 3, 2))   # (B,1,W,H) -> (B,1,Nx,Ny)
+
+    # FNO 前向：预测 t1..tT
+    pred = jax.vmap(model)(u0)                                # (B,1,T_pred,Nx,Ny)
+    if pred.ndim != 5 or pred.shape[1] != 1:
+        raise ValueError(f"FNO output must be (B,1,T,H,W), got {pred.shape}")
+
+    # 拼接完整时间序列 [t0..tT]
+    sols_full = jnp.concatenate([u0[:, :, None, :, :], pred], axis=2)  # (B,1,T_pred+1,Nx,Ny)
+
+    # 以 [0, Tc] 均匀时间对齐到 target_ts
+    pred_times = jnp.linspace(0.0, 1.0, sols_full.shape[2], dtype=sols_full.dtype) * Tc
+    pred_idxs = jnp.array([jnp.argmin(jnp.abs(pred_times - t)) for t in target_ts])
+    sols = sols_full[:, :, pred_idxs, :, :]                   # (B,1,T_tar,Nx,Ny)
+    sols = rearrange(sols, "b c t w h -> b t c h w")  # (B,T,C,H,W)
+
+    meshx = mesh_grids[0]
+    meshy = mesh_grids[1]
+
+    fig, axes = plt.subplots(
+        3,
+        len(target_ts),
+        figsize=(1.5 * len(target_ts), 5),
+        subplot_kw={"aspect": "equal"},
+    )
+    batch_th = jax.random.randint(key, (), 0, B)
+    channel_th = 0
+
+    for i, tic in enumerate(target_ts):
+        ax = axes[0, i]
+        ax.set_axis_off()
+        ax.pcolormesh(
+            meshx, meshy,
+            ref_sols[batch_th, i, channel_th, :, :],
+            cmap="coolwarm",
+            shading="auto",
+            rasterized=True,
+            vmin=-1, vmax=1,
+        )
+        if i == 0:
+            ax.text(-0.01, 0.5, r"Ref. $\phi$", rotation=90, va="center", ha="right", transform=ax.transAxes)
+        ax.text(0.5, 1.05, rf"$t={tic:.1f}\mathrm{{s}}$", va="bottom", ha="center", transform=ax.transAxes)
+
+        ax = axes[1, i]
+        ax.set_axis_off()
+        ax.pcolormesh(
+            meshx, meshy,
+            sols[batch_th, i, channel_th, :, :],
+            cmap="coolwarm",
+            shading="auto",
+            rasterized=True,
+            vmin=-1, vmax=1,
+        )
+        if i == 0:
+            ax.text(-0.01, 0.5, r"Pred. $\hat{\phi}$", rotation=90, va="center", ha="right", transform=ax.transAxes)
+
+        ax = axes[2, i]
+        ax.set_axis_off()
+        diff = jnp.abs(ref_sols[batch_th, i, channel_th, :, :] - sols[batch_th, i, channel_th, :, :])
+        diff_cont = ax.pcolormesh(
+            meshx, meshy, diff, cmap="coolwarm", shading="auto", rasterized=True
+        )
+        if i == 0:
+            ax.text(
+                -0.01, 0.5, r"Abs. Error $|\phi - \hat{\phi}|$",
+                rotation=90, va="center", ha="right", transform=ax.transAxes
+            )
+        fig.colorbar(diff_cont, ax=ax, fraction=0.046, pad=0.04, orientation="horizontal")
+
+    total_l2 = jnp.sqrt(jnp.sum((ref_sols - sols) ** 2, axis=(1, 3, 4))) / jnp.sqrt(
+        jnp.sum(ref_sols ** 2, axis=(1, 3, 4))
+    )
+    total_l2 = jnp.mean(total_l2)
+
+    fig.subplots_adjust(left=0.03, right=0.97, top=0.95, bottom=0.03, hspace=0.1, wspace=0.1)
+    fig.suptitle(
+        f"Exam. {int(batch_th)}, Var. phi, Rel. L2 Error: {float(total_l2):.2e}",
+        y=1.02,
+    )
+    return fig, total_l2
+
+
+
