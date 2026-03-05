@@ -159,6 +159,25 @@ class Losses(eqx.Module):
         sol_ref = rearrange(u, 'B C H W -> B (H W) C')  # B, (H*W), 2
         mse_loss = jnp.mean(jnp.square(sol - sol_ref))
         return mse_loss, {}
+    
+    def loss_data(
+        self,
+        model: Union[DeepONet, CViT],
+        u: jnp.ndarray,
+        x: jnp.ndarray,
+        t: jnp.ndarray,
+        cfg: Config,
+        **kwargs
+    ) -> Tuple[jnp.ndarray, dict]:
+        # data loss on some observed data points (u, x, t)
+        sol = jax.vmap(
+            model, in_axes=(0, None, None)
+        )(u, x, t)  # B, N_query, 2
+        # sol_ref should be provided in kwargs
+        sol_ref = kwargs.get("sol_ref")  # B, N_query, 2
+        mse_loss = jnp.mean(jnp.square(sol - sol_ref))
+        return mse_loss, {}
+        
         
     def loss_fn(
         self,
@@ -181,6 +200,10 @@ class Losses(eqx.Module):
         for name in active_losses:
             l_fn = getattr(self, name)
             vg_fn = eqx.filter_value_and_grad(l_fn, has_aux=True)
+            if name == "loss_data":
+                # for data loss, we need to pass sol_ref in kwargs
+                if "sol_ref" not in kwargs:
+                    raise ValueError("sol_ref must be provided in kwargs for loss_data")
             (loss, aux), grad = vg_fn(
                 model,
                 u=u,

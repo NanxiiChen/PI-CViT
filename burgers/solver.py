@@ -328,6 +328,15 @@ if __name__ == "__main__":
     length_scale = 0.1  # RBF kernel长度尺度
     amplitude = 0.2  # 初始条件振幅
     seed = 543  # 初始条件随机种子
+    # N = 256  # 样本数
+    # Nx, Ny = 64, 64  # 网格大小
+    # nu = 0.01  # 粘性系数
+    # t_end = 1.0  # 结束时间
+    # dt = 0.001  # 时间步长
+    # save_interval = 0.01 # 保存间隔
+    # length_scale = 0.1  # RBF kernel长度尺度
+    # amplitude = 0.2  # 初始条件振幅
+    # seed = 1234  # 初始条件随机种子
     
     print("="*60)
     print("2D Burgers方程求解器")
@@ -381,7 +390,7 @@ if __name__ == "__main__":
     
     # 保存结果
     print("\n步骤3: 保存结果...")
-    np.savez('./data/burgers/burgers_solutions.npz',
+    np.savez('./data/burgers/burgers_training.npz',
              solutions=np.transpose(solutions, (0, 1, 2, 4, 3)),  # 转置为 (N, T, Channels, Ny, Nx)
              times=times,
              x=x,
