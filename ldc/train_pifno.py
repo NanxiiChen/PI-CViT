@@ -140,10 +140,11 @@ def main():
     active_losses = tuple(n if n.startswith("loss_") else f"loss_{n}" for n in active_loss_names)
     alpha_w = float(getattr(configs, "alpha_w", 1.0))
 
-    weight_coef = jnp.asarray(
-        getattr(configs, "loss_weight_coef", [1.0] * len(active_losses)),
-        dtype=jnp.float32,
-    )
+    # weight_coef = jnp.asarray(
+    #     getattr(configs, "loss_weight_coef", [1.0] * len(active_losses)),
+    #     dtype=jnp.float32,
+    # )
+    weight_coef = jnp.array([1.0, 1.0, 3.0, 5.0, 5.0], dtype=jnp.float32)
 
     last_weights = jnp.ones((len(active_losses),), dtype=jnp.float32)
 

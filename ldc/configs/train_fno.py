@@ -49,7 +49,7 @@ class Config:
         depth=4,
         activation="gelu",
         add_coords=True,
-        padding=(10, 10) # padding for (t, x, y)
+        padding=(32, 32) # padding for (t, x, y)
     )
     
 
