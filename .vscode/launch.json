@@ -36,15 +36,15 @@
             ]
         },
         {
-            "name": "ldc-pi-fno",
+            "name": "burgers data driven",
             "type": "debugpy",
             "request": "launch",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "module": "ldc.train_pifno",
+            "module": "burgers.train_data_driven",
             "args": [
                 "--configs",
-                "train_fno"
+                "train_data"
             ]
         },
         {

@@ -190,13 +190,21 @@ def main():
     selected_idx = jax.random.choice(subkey, total_num, (dataset_size,), replace=False)
     solutions = solutions[selected_idx] # (dataset_size, T, C, H, W)
     
-    weight_coef = jnp.ones(len(active_losses))
+    
     
     num_train_step = 0
     total_train_step = configs.total_train_step
     while num_train_step < total_train_step:
-
         for batch_idx in range(num_batches):
+            
+            # weight_coef = jnp.ones(len(active_losses))
+            if "pde" not in active_loss_names:
+                weight_coef = jnp.ones(len(active_losses))
+            else:
+                if num_train_step < configs.warmup_steps:
+                    weight_coef = jnp.array([1.0, 0.0, 1.0]) # warm up with only data loss
+                else:
+                    weight_coef = jnp.array([1.0, 1.0, 1.0]) # then add the PDE loss
             
             if num_train_step % configs.test_every == 0:
                 eval_key, key = jax.random.split(key)

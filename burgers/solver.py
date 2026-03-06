@@ -328,7 +328,7 @@ if __name__ == "__main__":
     length_scale = 0.1  # RBF kernel长度尺度
     amplitude = 0.2  # 初始条件振幅
     seed = 543  # 初始条件随机种子
-    # N = 256  # 样本数
+    # N = 1024  # 样本数
     # Nx, Ny = 64, 64  # 网格大小
     # nu = 0.01  # 粘性系数
     # t_end = 1.0  # 结束时间

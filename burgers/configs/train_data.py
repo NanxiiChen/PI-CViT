@@ -18,7 +18,7 @@ class Config:
     Ny = 64  # number of spatial points in y
     spatial_domain = ((0, lx), (0, ly))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
-    active_loss_names = ("data", "ic",)
+    active_loss_names = ("data", "pde", "ic",)
     use_multi_gpu = True # some times `nan` occurs when using single gpu, possibly due to `hessian` computation instability
 
     Lc = 1.0  # xc = x / Lc
@@ -47,7 +47,7 @@ class Config:
         film_act="gelu",
     )
 
-    use_causality = True
+    use_causality = False
     max_grad_norm = 1.0
     optimizer_name = "soap" # adam. soap
     # `adam`` cannot make it, especially for `ic` term.
@@ -63,7 +63,7 @@ class Config:
     )
 
     # training hyperparameters
-    dataset_size = 128 # how many trajectories to use for training
+    dataset_size = 512 # how many trajectories to use for training
     total_train_step = 20000
     batch_size = 32
     num_samples = 2048
@@ -75,9 +75,8 @@ class Config:
     save_every = 500
     log_every = 50
     test_every = 500
-    resample_coord_every = 100
-    resample_u_every = 100
-    warmup_epochs = 1500
+    resample_every = 25
+    warmup_steps = 500 if "pde" in active_loss_names else 0
 
     # material properties
     nu = 0.01
