@@ -47,7 +47,7 @@ class Config:
         film_act="gelu",
     )
 
-    use_causality = False
+    use_causality = True
     max_grad_norm = 1.0
     optimizer_name = "soap" # adam. soap
     # `adam`` cannot make it, especially for `ic` term.
@@ -63,8 +63,8 @@ class Config:
     )
 
     # training hyperparameters
-    dataset_size = 512 # how many trajectories to use for training
-    total_train_step = 20000
+    dataset_size = 32 # how many trajectories to use for training
+    total_train_step = 15000
     batch_size = 32
     num_samples = 2048
     

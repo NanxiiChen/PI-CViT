@@ -89,10 +89,28 @@ def main():
         default="train_data_driven",
         help="Configuration file for training",
     )
+    arg_parser.add_argument(
+        "--save_name",
+        type=str,
+        default=None,
+        help="Name of the save directory for checkpoints and logs. Default to current timestamp.",
+    )
+    
+    arg_parser.add_argument(
+        "--dataset_size",
+        type=int,
+        default=None,
+        help="Number of training samples (spatio-temporal coordinates) for each input function. Default to the value in configs.",
+    )
     
     args = arg_parser.parse_args()
     configs = load_configs(args.configs)
-    save_dir = configs.save_dir + time.strftime("/%Y%m%d-%H%M%S")
+    save_name = getattr(args, "save_name", time.strftime("%Y%m%d-%H%M%S"))
+    if save_name is None:
+        save_name = time.strftime("%Y%m%d-%H%M%S")
+    print("save_name:", save_name)
+    
+    save_dir = configs.save_dir + "/" + save_name
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
     
@@ -106,6 +124,20 @@ def main():
         # u shape: B, C, H, W
         data_sharding = NamedSharding(mesh, PartitionSpec("batch", None, None, None))
         data_sahrding_ref = NamedSharding(mesh, PartitionSpec("batch", None, None))
+    
+    
+    func_sampler = FunctionSampler(
+        lx=configs.lx, ly=configs.ly, 
+        length_scale=configs.length_scale,
+        amplitude=configs.amplitude,
+        grid_size=configs.model_params["grid_size"],
+        num_u_samples=configs.batch_size
+    )
+    coord_sampler = CoordSampler(
+        spatial_domain=configs.spatial_domain,
+        temporal_domain=configs.temporal_domain,
+        num_pde_samples=configs.num_samples,
+    )
     
     subkey, key = jax.random.split(key)
     model_params = configs.model_params
@@ -169,11 +201,11 @@ def main():
         last_weights = jax.device_put(last_weights, replicated_sharding)
     
     
-    
-    batch_u = None
-    x_pde = None
-    t_pde = None
-    dataset_size = configs.dataset_size
+    dataset_size = getattr(args, "dataset_size")
+    if dataset_size is None:
+        dataset_size = configs.dataset_size
+    print("dataset_size:", dataset_size)
+    # dataset_size = configs.dataset_size
     batch_size = configs.batch_size
     batch_size = min(batch_size, dataset_size)
     num_batches = dataset_size // batch_size
@@ -202,7 +234,7 @@ def main():
                 weight_coef = jnp.ones(len(active_losses))
             else:
                 if num_train_step < configs.warmup_steps:
-                    weight_coef = jnp.array([1.0, 0.0, 1.0]) # warm up with only data loss
+                    weight_coef = jnp.array([1.0, 0.2, 2.0]) # warm up with only data loss
                 else:
                     weight_coef = jnp.array([1.0, 1.0, 1.0]) # then add the PDE loss
             
@@ -224,36 +256,78 @@ def main():
             start_batch = batch_idx * batch_size
             end_batch = start_batch + batch_size
             batch_solutions = solutions[start_batch:end_batch] # (batch_size, T, C, H, W)
-    
-            subkey, key = jax.random.split(key)
-            t_idx, y_idx, x_idx = sample_points(
-                subkey, t, y, x,
-                num_samples=configs.num_samples
-            ) # (num_samples,), (num_samples, 2)
-            t_pde = t[t_idx] # (num_samples,)
-            x_pde = jnp.stack([x[x_idx], y[y_idx]], axis=-1) # (num_samples, 2)
-            t_pde = t_pde[:, None] # (num_samples, 1)
 
-            batch_u = batch_solutions[:, 0, ...] # (batch_size, C, H, W) the initial condition for each input function in the batch
-            batch_solutions_trans = rearrange(batch_solutions, "b t c h w -> b t h w c") # (batch_size, T, H, W, C)
-            ref_data = batch_solutions_trans[:, t_idx, y_idx, x_idx, :] # (batch_size, num_samples, C) the reference solution at the sampled coordinates
 
-            if configs.use_multi_gpu:
-                t_pde = jax.device_put(t_pde, replicated_sharding)
-                x_pde = jax.device_put(x_pde, replicated_sharding)
-                batch_u = jax.device_put(batch_u, data_sharding)
-                ref_data = jax.device_put(ref_data, data_sahrding_ref)
+            if num_train_step % configs.resample_every == 0 or num_train_step >= configs.warmup_steps:
+                # sampling for data loss
+                subkey, key = jax.random.split(key)
+                t_idx, y_idx, x_idx = sample_points(
+                    subkey, t, y, x,
+                    num_samples=configs.num_samples
+                ) # (num_samples,), (num_samples, 2)
+                t_data = t[t_idx] # (num_samples,)
+                x_data = jnp.stack([x[x_idx], y[y_idx]], axis=-1) # (num_samples, 2)
+                t_data = t_data[:, None] # (num_samples, 1)
+
+                u_data = batch_solutions[:, 0, ...] # (batch_size, C, H, W) the initial condition for each input function in the batch
+                batch_solutions_trans = rearrange(batch_solutions, "b t c h w -> b t h w c") # (batch_size, T, H, W, C)
+                ref_data = batch_solutions_trans[:, t_idx, y_idx, x_idx, :] # (batch_size, num_samples, C) the reference solution at the sampled coordinates
+                if configs.use_multi_gpu:
+                    t_data = jax.device_put(t_data, replicated_sharding)
+                    x_data = jax.device_put(x_data, replicated_sharding)
+                    u_data = jax.device_put(u_data, data_sharding)
+                    ref_data = jax.device_put(ref_data, data_sahrding_ref)                
+            
+                # sampling for pde loss
+                subkey, key = jax.random.split(key)
+                pde_coords = coord_sampler.resample(subkey)
+                x_pde, t_pde = pde_coords[:, 0:2], pde_coords[:, 2:3]
+                subkey, key = jax.random.split(key)
+                u_pde = func_sampler.resample(subkey)
+                if configs.use_multi_gpu:
+                    t_pde = jax.device_put(t_pde, replicated_sharding)
+                    x_pde = jax.device_put(x_pde, replicated_sharding)
+                    u_pde = jax.device_put(u_pde, data_sharding)
+
 
             
             model, opt_state, total_loss, loss_values, weights, aux_vars = train_step(
-                model, loss_fn, opt_state, optimizer, batch_u,
+                model, loss_fn, opt_state, optimizer, u_pde,
                 x_pde, t_pde, configs, last_weights, configs.alpha_w,
                 weight_coef=weight_coef,
                 active_losses=active_losses,
                 causal_eps=causal_eps,
                 sol_ref=ref_data,
+                x_data=x_data,
+                t_data=t_data,
+                u_data=u_data,
             )
             last_weights = weights
+            
+            if configs.use_causality and "pde" in active_loss_names:    
+                loss_chunks = aux_vars.get("loss_chunks", None)
+                causal_weights = aux_vars.get("causal_weights", None)
+                new_eps = causal_weightor.update_causal_eps(
+                    causal_weights,
+                    eps=causal_eps,
+                    max_eps=configs.causality_params["max_eps"],
+                    min_mean_weight=configs.causality_params["min_mean_weight"],
+                    max_min_weight=configs.causality_params["max_min_weight"],
+                    step_size=configs.causality_params["step_size"],
+                )
+                if abs(new_eps - causal_eps) > 1e-6:
+                    print(f"Update epsilon: {causal_eps:.4e} --> {new_eps:.4e}")
+                # configs.causality_params.update(dict(eps=new_eps))
+                causal_eps = new_eps
+                
+                if num_train_step % configs.test_every == 0:
+                    fig = causal_weightor.plot_causal_info(
+                        loss_chunks,
+                        causal_weights,
+                        causal_eps,
+                    )
+                    writer.add_figure("causal_weights", fig, num_train_step)
+                    plt.close(fig)     
             
             if num_train_step % configs.log_every == 0:
                 print(
