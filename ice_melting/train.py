@@ -6,6 +6,7 @@ from dataclasses import asdict
 import equinox as eqx
 import jax
 jax.config.update("jax_default_matmul_precision", "highest")
+from jax.sharding import Mesh, NamedSharding, PartitionSpec
 import jax.numpy as jnp
 import optax
 import matplotlib.pyplot as plt
@@ -96,6 +97,19 @@ def main():
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
 
+    if configs.use_multi_gpu:
+        devices = jax.devices()
+        num_devices = len(devices)
+        print(f"Number of devices: {num_devices}, devices: {devices}")
+        mesh = Mesh(devices, axis_names=("batch",))
+        replicated_sharding = NamedSharding(mesh, PartitionSpec())
+        # split `u` to different devices along the batch dimension
+        # u shape: B, C, H, W
+        # params shape: B, 3
+        u_sharding = NamedSharding(mesh, PartitionSpec("batch", None, None, None))
+        params_sharding = NamedSharding(mesh, PartitionSpec("batch", None))
+        
+
     # Data preparation
     func_sampler = FunctionSampler(
         a_range=configs.a_range,
@@ -132,6 +146,9 @@ def main():
     if ckpt_path is not None and os.path.exists(ckpt_path):
         print(f"Load model from checkpoint: {ckpt_path}")
         model = eqx.tree_deserialise_leaves(ckpt_path, model)
+        
+    if configs.use_multi_gpu:
+        model = eqx.filter_shard(model, replicated_sharding)
 
     causal_weightor = CausalWeightor(
         num_chunks=configs.causality_params["num_chunks"],
@@ -144,7 +161,7 @@ def main():
     # !!! otherwise, it will cause jit compilation every time when `causal_eps` is updated
     causal_eps = jnp.array(configs.causality_params["initial_eps"])
     loss_fn = losses.loss_fn
-    active_loss_names = ("pde", "ic", "irr")
+    active_loss_names = configs.active_loss_names
     active_losses = tuple(f"loss_{name}" for name in active_loss_names)
 
     # optimizer = optax.adam(scheduler)
@@ -162,15 +179,25 @@ def main():
         max_grad_norm=configs.max_grad_norm,
     )
     opt_state = optimizer.init(eqx.filter(model, eqx.is_array)) 
-
     last_weights = jnp.array([1.0] * len(active_losses)) / len(active_losses)
+    if configs.use_multi_gpu:
+        opt_state = eqx.filter_shard(opt_state, replicated_sharding)
+        last_weights = jax.device_put(last_weights, replicated_sharding)
+
+    
     epochs = configs.num_epochs
     for epoch in range(epochs):
         subkey, key = jax.random.split(key)
-        if epoch % configs.resample_every == 0:
+        if epoch % configs.resample_every == 0 or epoch >= configs.warmup_epochs:
             batch_u, batch_params, pde_coords, ic_coords =\
                 data_factory.get_batch(subkey, model, losses.residual_pde, configs)
             
+            if configs.use_multi_gpu:
+                batch_u = jax.device_put(batch_u, u_sharding)
+                batch_params = jax.device_put(batch_params, params_sharding)
+                # pde_coords and ic_coords are shared across devices, so we can put them in replicated sharding
+                pde_coords = jax.device_put(pde_coords, replicated_sharding)
+                ic_coords = jax.device_put(ic_coords, replicated_sharding)
 
         if epoch % configs.test_every == 0:
             eval_key, key = jax.random.split(key)

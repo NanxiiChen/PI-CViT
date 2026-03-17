@@ -19,6 +19,7 @@ class Config:
     spatial_domain_phys = ((-50.0, 50.0), (-50.0, 50.0))  # physical spatial domain
     Lc = 100.0  # xc = x / Lc
     Tc = 3.0  # tc = t / Tc
+    active_loss_names = ("pde", "ic", "irr",)
 
     # model hyperparameters
     model_params = dict(
@@ -45,6 +46,7 @@ class Config:
     max_grad_norm = 1.0
     optimizer_name = "adam" # adam. soap
     alpha_w = 1.0 # moving average weight for loss balancing
+    use_multi_gpu = True
 
     causality_params = dict(
         num_chunks=24,
@@ -64,10 +66,11 @@ class Config:
     save_every = 500
     log_every = 50
     test_every = 500
-    resample_every = 1
+    resample_every = 25
+    warmup_epochs = 500
 
     num_u_samples = 16
-    num_pde_samples = 2048
+    num_pde_samples = 4096
     num_rar_samples = 0
     num_rar_pools = 0 # too slow to compute huge pool prediction, and no apparent benefit
     num_ic_samples = 1024

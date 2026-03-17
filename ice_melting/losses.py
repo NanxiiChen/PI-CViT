@@ -265,6 +265,23 @@ class Losses(eqx.Module):
         )(model, u, params, x, t, cfg) # (B, N_query)
         return jnp.mean(jnp.square(residuals)), {}
     
+    def loss_bc(self,
+                model: eqx.Module,
+                u: jnp.ndarray,
+                cfg: Config,
+                **kwargs
+                ) -> Tuple[jnp.ndarray, dict]:
+        
+        # apply dirichlet BC at the center point 
+        # \phi(x=0., y=0., t) = 1.0 for all t
+        xs = jnp.zeros((100, 2))  # (N_query, 2)
+        ts = jnp.linspace(0, 1, 100)[:, None]  # (N_query, 1)
+        sol = jax.vmap(
+            model, in_axes=(0, None, None)
+        )(u, xs, ts)  # (B, N_query, out_dim)
+        ref_sol = jnp.ones_like(sol)
+        residuals = sol - ref_sol
+        return jnp.mean(jnp.square(residuals)), {}
 
         
     
@@ -308,6 +325,8 @@ class Losses(eqx.Module):
                 x, t = ic_coords[:, :-1], ic_coords[:, -1:]
             elif name == "loss_irr":
                 x, t = pde_coords[:, :-1], pde_coords[:, -1:]
+            elif name == "loss_bc":
+                x, t = None, None
             else:
                 raise ValueError(f"Unknown loss component: {name}")
             l_fn = getattr(self, name)
@@ -344,7 +363,7 @@ class Losses(eqx.Module):
         
         
         
-    def grad_norm_weights(self, grads: list, eps=1e-6):
+    def grad_norm_weights(self, grads: list, eps=1e-4):
         def tree_norm(pytree):
             r, _ = ravel_pytree(pytree)
             return jnp.linalg.norm(r)
