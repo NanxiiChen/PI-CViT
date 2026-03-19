@@ -106,11 +106,18 @@ def main():
         default=None,
         help="Optimizer name",
     )
+    arg_parser.add_argument(
+        "--save_dir",
+        type=str,
+        default=None,
+        help="Directory to save logs and checkpoints",
+    )
     args = arg_parser.parse_args()
     configs = load_configs(args.configs)
     optimizer_name = args.optimizer_name if args.optimizer_name is not None else configs.optimizer_name
 
-    save_dir = configs.save_dir + time.strftime("/%Y%m%d-%H%M%S")
+    save_dir = args.save_dir if args.save_dir is not None else configs.save_dir
+    save_dir = save_dir + time.strftime("/%Y%m%d-%H%M%S")
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
 

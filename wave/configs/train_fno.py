@@ -57,7 +57,7 @@ class Config:
         max_min_weight=0.99,
     )
     
-    num_epochs = 20000
+    num_epochs = 40000
     initial_lr = 5e-4
     decay_every = 500
     decay_rate = 0.95
