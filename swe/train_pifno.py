@@ -233,11 +233,11 @@ def main():
                 writer.add_scalar(f"weight/weight_{active_loss_names[i]}", w.item(), epoch)
             writer.flush()
 
-        if epoch % configs.save_every == 0:
-            eqx.tree_serialise_leaves(
-                os.path.join(save_dir, f"model_epoch_{epoch}.eqx"),
-                model,
-            )
+        # if epoch % configs.save_every == 0:
+        #     eqx.tree_serialise_leaves(
+        #         os.path.join(save_dir, f"model_epoch_{epoch}.eqx"),
+        #         model,
+        #     )
 
     writer.close()
 
