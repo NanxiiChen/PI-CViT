@@ -202,9 +202,13 @@ def main():
             
         # at the warmup stage, we apply extra weighting to the IC loss
         # after warmup stage, all losses will be tuned by the GradNorm weights only
-        weight_coef = jnp.array([0.5, 2.0, 1.0]) \
-            if epoch < configs.warmup_epochs \
-            else jnp.array([1.0] * len(active_losses))
+        if configs.optimizer_name == "soap":
+            weight_coef = jnp.array([0.5, 2.0, 1.0]) \
+                if epoch < configs.warmup_epochs \
+                else jnp.array([1.0] * len(active_losses))
+        else:
+            weight_coef = jnp.array([1.0, 5.0, 1.0])
+            
         model, opt_state, total_loss, loss_values, weights, aux_vars = train_step(
             model,
             loss_fn,
