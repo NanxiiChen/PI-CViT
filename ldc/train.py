@@ -119,34 +119,36 @@ def main():
     active_loss_names = configs.active_loss_names
     active_losses = tuple(f"loss_{name}" for name in active_loss_names)
 
-    # optimizer = get_optimizer(
-    #     optimizer_name=configs.optimizer_name,
-    #     init_value=configs.initial_lr,
-    #     transition_steps=configs.decay_every,
-    #     decay_rate=configs.decay_rate,
-    #     staircase=False,
-    #     end_value=configs.min_lr,
-    #     b1=0.95,
-    #     b2=0.95,
-    #     precondition_frequency=5,
-    #     weight_decay=1e-6,
-    #     max_grad_norm=configs.max_grad_norm,
-    # )
-    base_tx = optax.chain(
-        optax.clip_by_global_norm(configs.max_grad_norm),
-        soap(
+    if configs.optimizer_name == "soap":
+        base_tx = optax.chain(
+            optax.clip_by_global_norm(configs.max_grad_norm),
+            soap(
+                learning_rate=configs.initial_lr,
+                b1=0.0,
+                b2=0.95,
+                precondition_frequency=5,
+            )
+        )
+
+        optimizer = optax.contrib.schedule_free(
+            base_tx,
             learning_rate=configs.initial_lr,
-            b1=0.0,
+            b1=0.95,
+        )
+    else:
+        optimizer = get_optimizer(
+            optimizer_name=configs.optimizer_name,
+            init_value=configs.initial_lr,
+            transition_steps=configs.decay_every,
+            decay_rate=configs.decay_rate,
+            staircase=False,
+            end_value=configs.min_lr,
+            b1=0.95,
             b2=0.95,
             precondition_frequency=5,
+            weight_decay=1e-6,
+            max_grad_norm=configs.max_grad_norm,
         )
-    )
-
-    optimizer = optax.contrib.schedule_free(
-        base_tx,
-        learning_rate=configs.initial_lr,
-        b1=0.95,
-    )
     
     
     
