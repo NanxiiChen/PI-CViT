@@ -100,8 +100,15 @@ def main():
         default="train_fno",
         help="Configuration file for training",
     )
+    arg_parser.add_argument(
+        "--optimizer_name",
+        type=str,
+        default=None,
+        help="Optimizer name",
+    )
     args = arg_parser.parse_args()
     configs = load_configs(args.configs)
+    optimizer_name = args.optimizer_name if args.optimizer_name is not None else configs.optimizer_name
 
     save_dir = configs.save_dir + time.strftime("/%Y%m%d-%H%M%S")
     os.makedirs(save_dir, exist_ok=True)
@@ -149,7 +156,7 @@ def main():
     last_weights = jnp.ones((len(active_losses),), dtype=jnp.float32)
 
     optimizer = get_optimizer(
-        optimizer_name=configs.optimizer_name,
+        optimizer_name=optimizer_name,
         init_value=configs.initial_lr,
         transition_steps=configs.decay_every,
         decay_rate=configs.decay_rate,
