@@ -221,6 +221,7 @@ def main():
             writer.add_figure("eval/u_pred_vs_ref", fig, epoch)
             writer.add_scalar("eval/l2_error", l2, epoch)
             plt.close(fig)
+            print(f"Epoch {epoch}/{epochs}, L2 error: {l2:.4e}")
         
         model, opt_state, total_loss, loss_values, weights, aux_vars = train_step(
             model,
@@ -281,7 +282,7 @@ def main():
 
             writer.flush()
 
-        if epoch % configs.save_every == 0:
+        if epoch % configs.save_every == 0 and configs.save_every > 0:
             eqx.tree_serialise_leaves(
                 os.path.join(save_dir, f"model_epoch_{epoch}.eqx"),
                 model,
