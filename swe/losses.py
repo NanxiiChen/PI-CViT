@@ -381,7 +381,10 @@ class Losses(eqx.Module):
             grads.append(grad)
             aux_vars.update(aux)
             
-        weights = self.grad_norm_weights(grads)
+        if getattr(cfg, "use_gradnorm", True):
+            weights = self.grad_norm_weights(grads)
+        else:
+            weights = jnp.ones(len(active_losses))
         weights = weights * weight_coef[:len(active_losses)]
         weights = alpha_w * weights + (1 - alpha_w) * last_weights
      

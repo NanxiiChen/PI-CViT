@@ -2,6 +2,7 @@ from typing import Tuple, Dict
 import argparse
 import os
 import time
+from pprint import pprint
 
 import equinox as eqx
 import jax
@@ -17,6 +18,7 @@ from tensorboardX import SummaryWriter
 
 from models import get_optimizer
 from models.causal import CausalWeightor
+from models.utils import apply_overrides
 
 from .configs import load_configs
 from .losses import Losses
@@ -62,8 +64,19 @@ def main():
         default="train_debug",
         help="Configuration file for training",
     )
+    arg_parser.add_argument(
+        "--set",
+        action="append",
+        help="Override configuration values",
+        default=[],
+    )
     args = arg_parser.parse_args()
-    configs = load_configs(args.configs)
+    configs_raw = load_configs(args.configs)
+    configs = apply_overrides(configs_raw, args.set, strict=False)
+    pprint(vars(configs), sort_dicts=False)
+
+    
+    
     save_dir = configs.save_dir + time.strftime("/%Y%m%d-%H%M%S")
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)

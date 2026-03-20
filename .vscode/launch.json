@@ -32,7 +32,13 @@
             "module": "burgers.train",
             "args": [
                 "--configs",
-                "train_cvit"
+                "train_cvit",
+                "--set",
+                "use_causality=False",
+                "--set",
+                "model_params.depth=4",
+                "--set",
+                "log_every=1"
             ]
         },
         {

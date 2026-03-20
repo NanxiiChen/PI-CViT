@@ -348,7 +348,10 @@ class Losses(eqx.Module):
             aux_vars.update(aux)
             
 
-        weights = self.grad_norm_weights(grads)
+        if getattr(cfg, "use_gradnorm", True):
+            weights = self.grad_norm_weights(grads)
+        else:
+            weights = jnp.ones(len(active_losses))
         weights = alpha_w * weights + (1 - alpha_w) * last_weigts
         
         # weights = weights.at[-1].set(2*weights[-1])  # Emphasize IC loss

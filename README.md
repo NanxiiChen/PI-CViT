@@ -1,26 +1,28 @@
 # PI-CViT: Physics-Informed Continuous Vision Transformer for Solving Parametric PDEs
 
 
-## Usage
+## Ablation Study
 
-Train `cvit` on the Burgers' equation:
+### GradNorm
+
+Train `cvit` without GradNorm:
 
 ```bash
-python -m burgers.train --configs train_cvit
+python -m burgers.train --configs train_cvit --set use_gradnorm=False --set save_dir=./logs/burgers/cvit/no_gradnorm
+python -m ice_melting.train --configs train_cvit --set use_gradnorm=False --set save_dir=./logs/ice_melting/cvit/no_gradnorm
+python -m wave.train --configs train_cvit --set use_gradnorm=False --set save_dir=./logs/wave/cvit/no_gradnorm
+python -m swe.train --configs train_cvit --set use_gradnorm=False --set save_dir=./logs/swe/cvit/no_gradnorm
+python -m ldc.train --configs train_cvit --set use_gradnorm=False --set save_dir=./logs/ldc/cvit/no_gradnorm
 ```
 
-Train `deeponet` on the Burgers' equation:
+### Causality
+
+Train `cvit` without causal:
 
 ```bash
-python -m burgers.train --configs train_deeponet
-```
-
-Train `fno` on those equations:
-
-```bash
-python -m burgers.train_pifno --configs train_fno --optimizer adam --save_dir ./logs/burgers/fno
-python -m wave.train_pifno --configs train_fno --optimizer adam --save_dir ./logs/wave/fno
-python -m swe.train_pifno --configs train_fno --optimizer adam --save_dir ./logs/swe/fno
-python -m swe.train_pifno --configs train_fno --optimizer soap --save_dir ./logs/swe/fno
-python -m ldc.train_pifno --configs train_fno --optimizer adam --save_dir ./logs/ldc/fno
+python -m burgers.train --configs train_cvit --set use_causality=False --set save_dir=./logs/burgers/cvit/no_causality
+python -m ice_melting.train --configs train_cvit --set use_causality=False --set save_dir=./logs/ice_melting/cvit/no_causality
+python -m wave.train --configs train_cvit --set use_causality=False --set save_dir=./logs/wave/cvit/no_causality
+python -m swe.train --configs train_cvit --set use_causality=False --set save_dir=./logs/swe/cvit/no_causality
+python -m ldc.train --configs train_cvit --set use_causality=False --set save_dir=./logs/ldc/cvit/no_causality
 ```
