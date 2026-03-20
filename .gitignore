@@ -6,7 +6,6 @@ __pycache__/
 *$py.class
 ._.DS_Store
 .DS_Store
-helvetica/
 train2d.sh
 *.pvd
 *.vtu

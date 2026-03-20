@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 import jax.numpy as jnp
 
-
-@dataclass(frozen=True)
 class Config:
     model_name = "deeponet"
     data_dir = "./data/swe/f10"

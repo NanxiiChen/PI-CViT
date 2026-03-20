@@ -3,7 +3,6 @@ import jax
 import jax.numpy as jnp
 
 
-@dataclass(frozen=True)
 class Config:
     model_name = "deeponet"
     data_dir = "./data/ice_melting/ellipse_refined_dt"

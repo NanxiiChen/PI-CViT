@@ -80,9 +80,7 @@ Utilities for config handling and overrides in dataclass-based configs.
 """
 
 import ast
-from warnings import warn
 import copy
-from dataclasses import field, make_dataclass
 
 
 def config_to_dict(cfg_obj):
@@ -91,9 +89,17 @@ def config_to_dict(cfg_obj):
     for k, v in vars(cfg_cls).items():
         if k.startswith("_"):
             continue
-        if callable(v) or isinstance(v, property):
+        # skip all non-config descriptors / callables
+        if (
+            callable(v)
+            or isinstance(v, (property, classmethod, staticmethod))
+        ):
             continue
-        out[k] = copy.deepcopy(v)
+        try:
+            out[k] = copy.deepcopy(v)
+        except Exception:
+            # e.g. descriptors not caught above
+            continue
     return out
 
 
@@ -119,7 +125,6 @@ def set_by_path(d, path, value, strict=True):
             if strict:
                 raise KeyError(f"Unknown key path: {path}")
             cur[k] = {}
-            warn(f"Creating intermediate dict for missing key: {k} in {path}")
         if not isinstance(cur[k], dict):
             raise TypeError(f"Intermediate key is not dict: {k} in {path}")
         cur = cur[k]
@@ -127,27 +132,6 @@ def set_by_path(d, path, value, strict=True):
     if strict and last not in cur:
         raise KeyError(f"Unknown key: {path}")
     cur[last] = value
-
-
-def _as_dataclass_instance(base_cls, values: dict):
-    fields = []
-    for k, v in values.items():
-        if isinstance(v, (dict, list, set)):
-            # mutable defaults need default_factory
-            fields.append(
-                (k, object, field(default_factory=lambda vv=copy.deepcopy(v): copy.deepcopy(vv)))
-            )
-        else:
-            fields.append((k, object, field(default=copy.deepcopy(v))))
-
-    OverrideConfig = make_dataclass(
-        cls_name=f"{base_cls.__name__}Override",
-        fields=fields,
-        bases=(base_cls,),
-        frozen=True,
-        eq=False,  # keep object hash; avoids unhashable-field issues in JIT static args
-    )
-    return OverrideConfig()
 
 
 def apply_overrides(cfg_obj, override_items, strict=True):
@@ -159,4 +143,5 @@ def apply_overrides(cfg_obj, override_items, strict=True):
         set_by_path(d, k, auto_cast(v), strict=strict)
 
     base_cls = cfg_obj if isinstance(cfg_obj, type) else type(cfg_obj)
-    return _as_dataclass_instance(base_cls, d)
+    override_cls = type(f"{base_cls.__name__}Override", (base_cls,), d)
+    return override_cls()
