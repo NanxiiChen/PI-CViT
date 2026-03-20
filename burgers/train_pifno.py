@@ -17,6 +17,7 @@ from tensorboardX import SummaryWriter
 
 from models import get_optimizer, get_model
 from models.causal import CausalWeightor
+from models.utils import apply_overrides
 
 from .configs import load_configs
 from .losses_spectral import Losses
@@ -54,23 +55,16 @@ def main():
         help="Configuration file for training",
     )
     arg_parser.add_argument(
-        "--optimizer_name",
-        type=str,
-        default=None,
-        help="Optimizer name",
-    )
-    arg_parser.add_argument(
-        "--save_dir",
-        type=str,
-        default=None,
-        help="Directory to save logs and checkpoints",
+        "--set",
+        action="append",
+        help="Override configuration values",
+        default=[],
     )
     args = arg_parser.parse_args()
-    configs = load_configs(args.configs)
-    optimizer_name = args.optimizer_name if args.optimizer_name is not None else configs.optimizer_name
-    
-    save_dir = args.save_dir if args.save_dir is not None else configs.save_dir
-    save_dir = save_dir + time.strftime("/%Y%m%d-%H%M%S")
+    configs_raw = load_configs(args.configs)
+    configs = apply_overrides(configs_raw, args.set, strict=False)
+
+    save_dir = configs.save_dir + time.strftime("/%Y%m%d-%H%M%S")
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
     
@@ -118,7 +112,7 @@ def main():
     loss_fn = losses.loss_fn
     
     optimizer = get_optimizer(
-        optimizer_name=optimizer_name,
+        optimizer_name=configs.optimizer_name,
         init_value=configs.initial_lr,
         transition_steps=configs.decay_every,
         decay_rate=configs.decay_rate,
