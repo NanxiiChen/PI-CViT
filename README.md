@@ -109,7 +109,8 @@ python -m swe.train_data_driven --configs train_data --set active_loss_names="('
 
 First generate the dataset using:
 
-```bashpython wave/solver_jax.py
+```bash
+python wave/solver_jax.py
 ```
 This scripts will generate 1024 training data series. The dataset is saved in `./data/wave/wave_training.npz` by default. Note that the size of the training dataset is about 1.7GB.
 
