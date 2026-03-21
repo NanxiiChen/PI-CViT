@@ -86,12 +86,12 @@ python -m swe.train_data_driven --configs train_data --set active_loss_names="('
 Train with physics on unlabled data:
 
 ```bash
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=1024 --set physics_on_data=False --set save_name=dataset_size_1024 --set save_dir=./logs/swe/cvit/physics_on_unlabeld_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=512 --set physics_on_data=False --set save_name=dataset_size_512 --set save_dir=./logs/swe/cvit/physics_on_unlabeld_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=256 --set physics_on_data=False --set save_name=dataset_size_256 --set save_dir=./logs/swe/cvit/physics_on_unlabeld_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=128 --set physics_on_data=False --set save_name=dataset_size_128 --set save_dir=./logs/swe/cvit/physics_on_unlabeld_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=64 --set physics_on_data=False --set save_name=dataset_size_64 --set save_dir=./logs/swe/cvit/physics_on_unlabeld_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=32 --set physics_on_data=False --set save_name=dataset_size_32 --set save_dir=./logs/swe/cvit/physics_on_unlabeld_data/
+python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=1024 --set physics_on_data=False --set save_name=dataset_size_1024 --set save_dir=./logs/swe/cvit/physics_on_unlabeled_data/
+python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=512 --set physics_on_data=False --set save_name=dataset_size_512 --set save_dir=./logs/swe/cvit/physics_on_unlabeled_data/
+python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=256 --set physics_on_data=False --set save_name=dataset_size_256 --set save_dir=./logs/swe/cvit/physics_on_unlabeled_data/
+python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=128 --set physics_on_data=False --set save_name=dataset_size_128 --set save_dir=./logs/swe/cvit/physics_on_unlabeled_data/
+python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=64 --set physics_on_data=False --set save_name=dataset_size_64 --set save_dir=./logs/swe/cvit/physics_on_unlabeled_data/
+python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=32 --set physics_on_data=False --set save_name=dataset_size_32 --set save_dir=./logs/swe/cvit/physics_on_unlabeled_data/
 ```
 
 Train with physics on labeled data:
