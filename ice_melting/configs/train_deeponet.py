@@ -17,6 +17,7 @@ class Config:
     spatial_domain_phys = ((-50.0, 50.0), (-50.0, 50.0))  # physical spatial domain
     Lc = 100.0  # xc = x / Lc
     Tc = 3.0  # tc = t / Tc
+    active_loss_names = ("pde", "ic", "irr",)
 
     # model hyperparameters
     model_params = dict(
@@ -47,6 +48,7 @@ class Config:
     max_grad_norm = 1.0
     optimizer_name = "adam" # adam. soap
     alpha_w = 1.0 # moving average weight for loss balancing
+    use_multi_gpu = True
 
     causality_params = dict(
         num_chunks=24,
