@@ -123,7 +123,7 @@ def main():
         # split `u` to different devices along the batch dimension
         # u shape: B, C, H, W
         data_sharding = NamedSharding(mesh, PartitionSpec("batch", None, None, None))
-        data_sahrding_ref = NamedSharding(mesh, PartitionSpec("batch", None, None))
+        data_sharding_ref = NamedSharding(mesh, PartitionSpec("batch", None, None))
     
     
     func_sampler = FunctionSampler(
@@ -276,7 +276,7 @@ def main():
                     t_data = jax.device_put(t_data, replicated_sharding)
                     x_data = jax.device_put(x_data, replicated_sharding)
                     u_data = jax.device_put(u_data, data_sharding)
-                    ref_data = jax.device_put(ref_data, data_sahrding_ref)                
+                    ref_data = jax.device_put(ref_data, data_sharding_ref)                
             
                 # sampling for pde loss
                 subkey, key = jax.random.split(key)

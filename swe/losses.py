@@ -331,7 +331,22 @@ class Losses(eqx.Module):
         )(model, u, x, t, cfg)  # (B, C=2, H, W)
         mse_loss = jnp.mean(jnp.square(res))
         return mse_loss, {}
-        
+     
+    def loss_data(
+        self,
+        model: Union[DeepONet, CViT],
+        u: jnp.ndarray,
+        x: jnp.ndarray,
+        t: jnp.ndarray,
+        **kwargs
+    ) -> Tuple[jnp.ndarray, dict]:
+        # data loss on some observed data points (u, x, t)
+        sol = jax.vmap(
+            model, in_axes=(0, None, None)
+        )(u, x, t)  # B, N_query, C
+        sol_ref = kwargs.get("sol_ref", None)  # B, N_query, C
+        mse_loss = jnp.mean(jnp.square(sol - sol_ref))
+        return mse_loss, {}   
     
     def loss_fn(
         self,
@@ -364,13 +379,18 @@ class Losses(eqx.Module):
                 
             elif name == "loss_ic_h":
                 x = None
-                t = None            
+                t = None      
+            
+            elif name == "loss_data":
+                coord_samples = coords.get("data", None)      
+                x = coord_samples[:, :-1]
+                t = coord_samples[:, -1:]
                 
             l_fn = getattr(self, name)
             vg_fn = eqx.filter_value_and_grad(l_fn, has_aux=True)
             (loss, aux), grad = vg_fn(
                 model, 
-                u=u,
+                u=u if name != "loss_data" else kwargs.get("u_data", u), # for data loss, we might want to u with labeled data.
                 x=x,  # for ic, coord is generated inside loss function
                 t=t,  # for ic, coord is generated inside loss function
                 cfg=cfg,

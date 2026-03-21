@@ -83,10 +83,10 @@
             "request": "launch",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "module": "swe.train",
+            "module": "swe.train_data_driven",
             "args": [
                 "--configs",
-                "train_cvit"
+                "train_data"
             ]
         },
     ]
