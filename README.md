@@ -5,93 +5,58 @@
 
 ### GradNorm
 
-Train `cvit` without GradNorm:
+Train `FNO` without `GradNorm`:
 
 ```bash
-python -m burgers.train \
-    --configs train_cvit \
+python -m wave.train_pifno \
+    --configs train_fno \
     --set use_gradnorm=False \
-    --set save_dir=./logs/burgers/cvit/no_gradnorm \
     --set save_every=-1 \
+    --set log_every=50 \
     --set test_every=200 \
-    --set log_every=50
+    --set save_dir=./logs/wave/fno/no_gradnorm
 
-python -m ice_melting.train \
-    --configs train_cvit \
+python -m swe.train_pifno \
+    --configs train_fno \
     --set use_gradnorm=False \
-    --set save_dir=./logs/ice_melting/cvit/no_gradnorm \
     --set save_every=-1 \
+    --set log_every=50 \
     --set test_every=200 \
-    --set log_every=50
-
-python -m wave.train \
-    --configs train_cvit \
-    --set use_gradnorm=False \
-    --set save_dir=./logs/wave/cvit/no_gradnorm \
-    --set save_every=-1 \
-    --set test_every=200 \
-    --set log_every=50
-
-python -m swe.train \
-    --configs train_cvit \
-    --set use_gradnorm=False \
-    --set save_dir=./logs/swe/cvit/no_gradnorm \
-    --set save_every=-1
-    --set test_every=200
-    --set log_every=50
-
-python -m ldc.train \
-    --configs train_cvit \
-    --set use_gradnorm=False \
-    --set save_dir=./logs/ldc/cvit/no_gradnorm \
-    --set save_every=-1 \
-    --set test_every=200 \
-    --set log_every=50
+    --set save_dir=./logs/swe/fno/no_gradnorm
 ```
-`save_every=-1` means that the model weights will not be saved during training.
 
-### Causality
-
-Train `cvit` without causal:
+Train `FNO` without `Causal`:
 
 ```bash
-python -m burgers.train \
-    --configs train_cvit \
+python -m burgers.train_pifno \
+    --configs train_fno \
     --set use_causality=False \
-    --set save_dir=./logs/burgers/cvit/no_causality \
     --set save_every=-1 \
+    --set log_every=50 \
     --set test_every=200 \
-    --set log_every=50
+    --set save_dir=./logs/burgers/fno/no_causal 
 
-python -m ice_melting.train \
-    --configs train_cvit \
+python -m ice_melting.train_pifno \
+    --configs train_fno \
     --set use_causality=False \
-    --set save_dir=./logs/ice_melting/cvit/no_causality \
     --set save_every=-1 \
+    --set log_every=50 \
     --set test_every=200 \
-    --set log_every=50
+    --set save_dir=./logs/ice_melting/fno/no_causal
 
-python -m wave.train \
-    --configs train_cvit \
+python -m wave.train_pifno \
+    --configs train_fno \
     --set use_causality=False \
-    --set save_dir=./logs/wave/cvit/no_causality \
     --set save_every=-1 \
+    --set log_every=50 \
     --set test_every=200 \
-    --set log_every=50
+    --set save_dir=./logs/wave/fno/no_causal
 
-python -m swe.train \
-    --configs train_cvit \
+python -m swe.train_pifno \
+    --configs train_fno \
     --set use_causality=False \
-    --set save_dir=./logs/swe/cvit/no_causality \
     --set save_every=-1 \
+    --set log_every=50 \
     --set test_every=200 \
-    --set log_every=50
-
-python -m ldc.train \
-    --configs train_cvit \
-    --set use_causality=False \
-    --set save_dir=./logs/ldc/cvit/no_causality \
-    --set save_every=-1 \
-    --set test_every=200 \
-    --set log_every=50
+    --set save_dir=./logs/swe/fno/no_causal
 ```

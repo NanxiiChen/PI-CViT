@@ -69,6 +69,7 @@ class Config:
     log_every = 50
     test_every = 500
     resample_every = 10
+    warmup_epochs = 500
 
     num_u_samples = 16
     num_pde_samples = 2048

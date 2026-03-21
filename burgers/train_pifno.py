@@ -150,6 +150,7 @@ def main():
             writer.add_figure("eval/u_pred_vs_ref", fig, epoch)
             writer.add_scalar("eval/l2_error", l2, epoch)
             plt.close(fig)
+            print(f"Epoch {epoch}/{epochs}, L2 error: {l2:.4e}")
             
         
         model, opt_state, total_loss, aux_vars = train_step(
