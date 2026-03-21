@@ -268,7 +268,7 @@ def main():
                     subkey, key = jax.random.split(key)
                     u_pde = func_sampler.resample(subkey)    
                 
-
+                subkey, key = jax.random.split(key)
                 pde_and_ic_coords = coord_sampler.resample(subkey)
                 if configs.physics_on_data:
                     # we evaluate pde loss on the sampled data points
@@ -276,7 +276,6 @@ def main():
                     ic_uv_coords = pde_and_ic_coords["ic_uv"]
                 else:
                     # we sample another set of coordinates for pde loss
-                    subkey, key = jax.random.split(key)
                     pde_coords = pde_and_ic_coords["pde"]
                     ic_uv_coords = pde_and_ic_coords["ic_uv"]
                 coords["pde"] = pde_coords
