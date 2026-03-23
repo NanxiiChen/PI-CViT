@@ -224,6 +224,26 @@ class Losses(eqx.Module):
         loss = jnp.mean(jnp.square(sol[:, :, 2]))  # ()
         return loss, {}
         
+    def loss_data(
+        self,
+        model: Union[DeepONet, CViT],
+        u: jnp.ndarray,
+        x: jnp.ndarray,
+        cfg: Config,
+        **kwargs
+    ) -> jnp.ndarray:
+        """
+        Data loss for a small set of supervised data points.
+        Used in ablation study to see if adding some data points can help convergence/generalization.
+        x: (N_query, 2)
+        """
+        sol = jax.vmap(
+            model, in_axes=(0, None)
+        )(u, x)  # (B, N_query, 3)
+        sol_ref = kwargs.get("sol_ref", None)  # (B, N_query, 3)
+        mse_loss = jnp.mean(jnp.square(sol - sol_ref))  # ()
+        return mse_loss, {}
+        
 
     
     
@@ -257,13 +277,21 @@ class Losses(eqx.Module):
             elif name == "loss_bc_lid":
                 x = coords.get("bc_lid", None)
                 
+            elif name == "loss_data":
+                x = coords.get("data", None)
+                
             else:
                 x = None
                 
             l_fn = getattr(self, name)
             vg_fn = eqx.filter_value_and_grad(l_fn, has_aux=True)
             (loss, aux), grad = vg_fn(
-                model, u=u, x=x, cfg=cfg
+                model, 
+                # for data loss, we use `u_data`
+                u=u if name != "loss_data" else kwargs.get("u_data", None),
+                x=x, 
+                cfg=cfg, 
+                **kwargs
             )
             
             grad = jax.tree.map(lambda g: jnp.nan_to_num(g), grad)
