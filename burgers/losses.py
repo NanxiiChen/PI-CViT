@@ -162,22 +162,8 @@ class Losses(eqx.Module):
         x_pde = jnp.stack([xx.ravel(), yy.ravel()], axis=-1)  # (Nx*Ny, 2)
         ts = jnp.linspace(cfg.temporal_domain[0], cfg.temporal_domain[1], Nt + 1)
 
-        def fwd_fn(carry, t):
-            t_pde = jnp.full((x_pde.shape[0], 1), t)
-            sol = jax.vmap(model, in_axes=(0, None, None))(u, x_pde, t_pde)  # (B, Nx*Ny, 2)
-            return carry, sol
-        
-        _, sols = jax.lax.scan(fwd_fn, None, ts)  # (Nt+1, B, Nx*Ny, 2)
-        sols = rearrange(
-            sols,
-            "t b (h w) c -> b t c h w",
-            h=int(Ny),
-            w=int(Nx),
-        )  # (B, Nt+1, 2, Ny, Nx)
+        B = u.shape[0]
 
-        u_comp = sols[:, :, 0, :, :]  # (B, Nt+1, Ny, Nx)
-        v_comp = sols[:, :, 1, :, :]
-        
         def d_dx(f):
             return (jnp.roll(f, -1, axis=-1) - jnp.roll(f, 1, axis=-1)) / (2.0 * dx)
 
@@ -209,40 +195,48 @@ class Losses(eqx.Module):
             rhs_v = -Tc * (uu * vx + vv * vy) / Lc + Tc * nu * lap_v / (Lc ** 2)
             return jnp.stack([rhs_u, rhs_v], axis=-3)  # (..., 2, Ny, Nx)
         
-        states = sols  # (B, Nt+1, 2, Ny, Nx)
-        s_n = states[:, :-1, :, :, :]   # (B, Nt, 2, Ny, Nx)
-        s_np1 = states[:, 1:, :, :, :]  # (B, Nt, 2, Ny, Nx)
-
-        k1 = rhs(s_n)
-        k2 = rhs(s_n + 0.5 * dt * k1)
-        k3 = rhs(s_n + 0.5 * dt * k2)
-        k4 = rhs(s_n + dt * k3)
-
-        s_rk4 = s_n + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
-        defect = s_np1 - s_rk4  # (B, Nt, 2, Ny, Nx)
-            
-        defect_norm = jnp.linalg.norm(defect, ord=2, axis=2)  # (B, Nt, Ny, Nx)
-        mse_loss = jnp.mean(jnp.square(defect_norm))
-
-        aux = {
-            "residual_t_mean": jnp.mean(jnp.square(defect_norm), axis=(0, 2, 3))
-        }
-
-        if not cfg.use_causality:
-            return mse_loss, aux
-
-        residuals_for_causal = jnp.sqrt(
-            jnp.mean(jnp.square(defect_norm), axis=(2, 3))
-        )  # (B, Nt)
-        ts_causal = ts[1:, None]  # (Nt, 1)
-        residuals_mean, loss_chunks, causal_weights = self.causal_weightor.compute_causal_loss(
-            residuals_for_causal, ts_causal, kwargs.get("causal_eps")
+        enc_out = jax.vmap(model.encoder)(u) # (B, N_patches, emb_dim)
+        decode_ckpt = jax.checkpoint(
+            lambda enc, xq, tq: model.decoder(enc, xq, tq)
         )
-        aux.update({
-            "loss_chunks": loss_chunks,
-            "causal_weights": causal_weights
-        })
-        return residuals_mean, aux
+
+        def predict_state(t):
+            t_pde = jnp.full((x_pde.shape[0], 1), t)
+            sol = jax.vmap(decode_ckpt, in_axes=(0, None, None))(
+                enc_out, x_pde, t_pde
+            )  # (B, Nx*Ny, 2)
+            return rearrange(sol, "b (h w) c -> b c h w", h=int(Ny), w=int(Nx))
+
+        # s0 = predict_state(ts[0])  # (B, 2, Ny, Nx)
+        s0 = u # use the given initial condition as s0, which is more accurate than the model prediction at t=0
+
+        def step(carry, t_next):
+            s_n, sum_sq = carry
+            s_np1 = predict_state(t_next)
+
+            k1 = rhs(s_n)
+            k2 = rhs(s_n + 0.5 * dt * k1)
+            k3 = rhs(s_n + 0.5 * dt * k2)
+            k4 = rhs(s_n + dt * k3)
+            s_rk4 = s_n + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+
+            defect = s_np1 - s_rk4                      # (B, 2, Ny, Nx)
+            defect_sq = jnp.sum(defect * defect, axis=1)  # (B, Ny, Nx), 等价于 norm^2 over channel
+
+            step_sum = jnp.sum(defect_sq)                 # 标量
+            step_mean = jnp.mean(defect_sq)               # 标量，对应 residual_t_mean[t]
+            return (s_np1, sum_sq + step_sum), step_mean
+
+        (_, total_sq), residual_t_mean = jax.lax.scan(
+            step,
+            (s0, jnp.array(0.0, dtype=u.dtype)),
+            ts[1:]
+        )
+
+        mse_loss = total_sq / (B * Nt * Ny * Nx)
+        aux = {"residual_t_mean": residual_t_mean}  # (Nt,)
+
+        return mse_loss, aux
         
         
             
@@ -418,5 +412,4 @@ if __name__ == "__main__":
     
     ic_loss = losses.loss_ic(model, u, cfg)
     print("ic_loss:", ic_loss)
-    
-    
+
