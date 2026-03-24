@@ -135,6 +135,117 @@ class Losses(eqx.Module):
                 "causal_weights": causal_weights
             }
             
+    def loss_pde_fd(
+        self,
+        model: CViT | DeepONet,
+        u: jnp.ndarray,
+        cfg: Config,
+        **kwargs
+    ):
+        # compute PDE residual using finite difference
+        Nx = cfg.Nx
+        Ny = cfg.Ny
+        Nt = cfg.Nt
+        lx = cfg.lx
+        ly = cfg.ly
+        nu = cfg.nu
+        Tc = cfg.Tc
+        Lc = cfg.Lc
+        
+        dx = lx / Nx
+        dy = ly / Ny
+        dt = (cfg.temporal_domain[1] - cfg.temporal_domain[0]) / Nt
+        
+        x = jnp.linspace(0, lx, Nx, endpoint=False)
+        y = jnp.linspace(0, ly, Ny, endpoint=False)
+        xx, yy = jnp.meshgrid(x, y, indexing='xy') 
+        x_pde = jnp.stack([xx.ravel(), yy.ravel()], axis=-1)  # (Nx*Ny, 2)
+        ts = jnp.linspace(cfg.temporal_domain[0], cfg.temporal_domain[1], Nt + 1)
+
+        def fwd_fn(carry, t):
+            t_pde = jnp.full((x_pde.shape[0], 1), t)
+            sol = jax.vmap(model, in_axes=(0, None, None))(u, x_pde, t_pde)  # (B, Nx*Ny, 2)
+            return carry, sol
+        
+        _, sols = jax.lax.scan(fwd_fn, None, ts)  # (Nt+1, B, Nx*Ny, 2)
+        sols = rearrange(
+            sols,
+            "t b (h w) c -> b t c h w",
+            h=int(Ny),
+            w=int(Nx),
+        )  # (B, Nt+1, 2, Ny, Nx)
+
+        u_comp = sols[:, :, 0, :, :]  # (B, Nt+1, Ny, Nx)
+        v_comp = sols[:, :, 1, :, :]
+        
+        def d_dx(f):
+            return (jnp.roll(f, -1, axis=-1) - jnp.roll(f, 1, axis=-1)) / (2.0 * dx)
+
+        def d_dy(f):
+            return (jnp.roll(f, -1, axis=-2) - jnp.roll(f, 1, axis=-2)) / (2.0 * dy)
+
+        def lap(f):
+            f_xx = (jnp.roll(f, -1, axis=-1) - 2.0 * f + jnp.roll(f, 1, axis=-1)) / (dx * dx)
+            f_yy = (jnp.roll(f, -1, axis=-2) - 2.0 * f + jnp.roll(f, 1, axis=-2)) / (dy * dy)
+            return f_xx + f_yy
+        
+        # RHS in normalized time tau: d/dtau = Tc * d/dt
+        def rhs(state):
+            # state: (..., 2, Ny, Nx)
+            uu = state[..., 0, :, :]
+            vv = state[..., 1, :, :]
+
+            ux = d_dx(uu)
+            uy = d_dy(uu)
+            vx = d_dx(vv)
+            vy = d_dy(vv)
+
+            lap_u = lap(uu)
+            lap_v = lap(vv)
+
+            # u_t/Tc + (u·∇u)/Lc - nu*Δu/Lc^2 = 0
+            # => du/dtau = -Tc*(u·∇u)/Lc + Tc*nu*Δu/Lc^2
+            rhs_u = -Tc * (uu * ux + vv * uy) / Lc + Tc * nu * lap_u / (Lc ** 2)
+            rhs_v = -Tc * (uu * vx + vv * vy) / Lc + Tc * nu * lap_v / (Lc ** 2)
+            return jnp.stack([rhs_u, rhs_v], axis=-3)  # (..., 2, Ny, Nx)
+        
+        states = sols  # (B, Nt+1, 2, Ny, Nx)
+        s_n = states[:, :-1, :, :, :]   # (B, Nt, 2, Ny, Nx)
+        s_np1 = states[:, 1:, :, :, :]  # (B, Nt, 2, Ny, Nx)
+
+        k1 = rhs(s_n)
+        k2 = rhs(s_n + 0.5 * dt * k1)
+        k3 = rhs(s_n + 0.5 * dt * k2)
+        k4 = rhs(s_n + dt * k3)
+
+        s_rk4 = s_n + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+        defect = s_np1 - s_rk4  # (B, Nt, 2, Ny, Nx)
+            
+        defect_norm = jnp.linalg.norm(defect, ord=2, axis=2)  # (B, Nt, Ny, Nx)
+        mse_loss = jnp.mean(jnp.square(defect_norm))
+
+        aux = {
+            "residual_t_mean": jnp.mean(jnp.square(defect_norm), axis=(0, 2, 3))
+        }
+
+        if not cfg.use_causality:
+            return mse_loss, aux
+
+        residuals_for_causal = jnp.sqrt(
+            jnp.mean(jnp.square(defect_norm), axis=(2, 3))
+        )  # (B, Nt)
+        ts_causal = ts[1:, None]  # (Nt, 1)
+        residuals_mean, loss_chunks, causal_weights = self.causal_weightor.compute_causal_loss(
+            residuals_for_causal, ts_causal, kwargs.get("causal_eps")
+        )
+        aux.update({
+            "loss_chunks": loss_chunks,
+            "causal_weights": causal_weights
+        })
+        return residuals_mean, aux
+        
+        
+            
     
     def loss_ic(
         self,
@@ -220,6 +331,15 @@ class Losses(eqx.Module):
                     x=None, # for ic, this arg is ignored
                     t=None,  # for ic, this arg is ignored
                     cfg=cfg,
+                )
+            elif name == "loss_pde_fd":
+                (loss, aux), grad = vg_fn(
+                    model,
+                    u=u,
+                    x=None, # for pde_fd, this arg is ignored
+                    t=None,  # for pde_fd, this arg is ignored
+                    cfg=cfg,
+                    **kwargs
                 )
             else:
                 (loss, aux), grad = vg_fn(
