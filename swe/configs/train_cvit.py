@@ -62,7 +62,7 @@ class Config:
     )
 
     # training hyperparameters
-    num_epochs = 30000
+    num_epochs = 40000
     initial_lr = 5e-4 if ckpt is None else 1e-5
     decay_every = 500
     decay_rate = 0.95
