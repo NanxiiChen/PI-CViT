@@ -12,7 +12,7 @@ train2d.sh
 *.xdmf
 *.h5
 databackup/
-data*
+data/*
 tmp/
 figures/*.pdf
 count_params.ipynb
