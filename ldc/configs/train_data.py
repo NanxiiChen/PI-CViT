@@ -10,11 +10,12 @@ class Config:
     ckpt = None
     lx = 1.0
     ly = 1.0
-    Nx = 128  # number of spatial points in x
-    Ny = 128  # number of spatial points in y
+    Nx = 256  # number of spatial points in x
+    Ny = 256  # number of spatial points in y
     spatial_domain = ((0, lx), (0, ly))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
-    active_loss_names = ("data", "momentum", "continuity", "bc_walls", "bc_lid", "bc_pressure")
+    active_loss_names = ("data", "bc_walls", "bc_lid", "bc_pressure")
+    # active_loss_names = ("data", "momentum", "continuity", "bc_walls", "bc_lid", "bc_pressure")
     use_multi_gpu = True # some times `nan` occurs when using single gpu, possibly due to `hessian` computation instability
 
     re_range = (50, 1000)  # reynolds number range for data generation
@@ -60,6 +61,7 @@ class Config:
         layer_norm_eps=1e-5,
     )
 
+    physics_on_data = False
     use_causality = True
     max_grad_norm = 1.0
     optimizer_name = "soap" # adam not work here
@@ -75,14 +77,14 @@ class Config:
     min_lr = 1e-5
     save_every = 1000
     log_every = 50
-    test_every = 500
+    test_every = 200
     resample_every = 50
     
     if ckpt is None:
-        warmup_epochs = 0
+        warmup_steps = 0
         reach_max_re_epoch = 5000
     else:
-        warmup_epochs = 0
+        warmup_steps = 0
         reach_max_re_epoch = 1
 
     batch_size = 32

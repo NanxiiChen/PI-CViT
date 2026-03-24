@@ -71,10 +71,14 @@
             "request": "launch",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
-            "module": "ldc.train",
+            "module": "ldc.train_data_driven",
             "args": [
                 "--configs",
-                "train_cvit"
+                "train_data",
+                "--set",
+                "save_every=-1",
+                "--set",
+                "dataset_size=256",
             ]
         },
         {

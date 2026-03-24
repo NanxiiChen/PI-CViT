@@ -186,6 +186,7 @@ class Losses(eqx.Module):
         u: jnp.ndarray,
         x: jnp.ndarray,
         cfg: Config,
+        **kwargs
     ):
         """
         Compute the boundary condition loss at the lid.

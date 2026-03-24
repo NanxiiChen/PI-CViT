@@ -105,14 +105,34 @@ python -m swe.train_data_driven --configs train_data --set active_loss_names="('
 python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=32 --set physics_on_data=True --set save_name=dataset_size_32 --set save_dir=./logs/swe/cvit/physics_on_labeled_data/
 ```
 
-#### Wave Equation
 
-First generate the dataset using:
+#### Lid-Driven Cavity Flow
+
+Put the dataset `ldc_training.npz` in `./data/ldc/`, which contains 256 training data series. 
+
+Train with pure data:
 
 ```bash
-python wave/solver_jax.py
+python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=256 --set save_name=dataset_size_256 --set save_dir=./logs/ldc/cvit/pure_data/
+python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=128 --set save_name=dataset_size_128 --set save_dir=./logs/ldc/cvit/pure_data/
+python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=64 --set save_name=dataset_size_64 --set save_dir=./logs/ldc/cvit/pure_data/
+python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=32 --set save_name=dataset_size_32 --set save_dir=./logs/ldc/cvit/pure_data/
 ```
-This scripts will generate 1024 training data series. The dataset is saved in `./data/wave/wave_training.npz` by default. Note that the size of the training dataset is about 1.7GB.
 
+Train with physics on unlabeled data:
 
-To be continued...
+```bash
+python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=256 --set physics_on_data=False --set save_name=dataset_size_256 --set save_dir=./logs/ldc/cvit/physics_on_unlabeled_data/
+python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=128 --set physics_on_data=False --set save_name=dataset_size_128 --set save_dir=./logs/ldc/cvit/physics_on_unlabeled_data/
+python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=64 --set physics_on_data=False --set save_name=dataset_size_64 --set save_dir=./logs/ldc/cvit/physics_on_unlabeled_data/
+python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=32 --set physics_on_data=False --set save_name=dataset_size_32 --set save_dir=./logs/ldc/cvit/physics_on_unlabeled_data/
+``` 
+
+Train with physics on labeled data:
+
+```bash
+python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=256 --set physics_on_data=True --set save_name=dataset_size_256 --set save_dir=./logs/ldc/cvit/physics_on_labeled_data/
+python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=128 --set physics_on_data=True --set save_name=dataset_size_128 --set save_dir=./logs/ldc/cvit/physics_on_labeled_data/
+python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=64 --set physics_on_data=True --set save_name=dataset_size_64 --set save_dir=./logs/ldc/cvit/physics_on_labeled_data/
+python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=32 --set physics_on_data=True --set save_name=dataset_size_32 --set save_dir=./logs/ldc/cvit/physics_on_labeled_data/
+```

@@ -220,9 +220,9 @@ def main():
             else:
                 # train with PDE losses
                 if num_train_step < configs.warmup_steps:
-                    weight_coef = jnp.array([1.0, 1.0, 3.0, 3.0, 1.0])
+                    weight_coef = jnp.array([1.0, 1.0, 1.0, 3.0, 3.0, 1.0])
                 else:
-                    weight_coef = jnp.array([1.0, 1.0, 1.0, 1.0, 1.0])
+                    weight_coef = jnp.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
                     
             if num_train_step % configs.test_every == 0:
                 fig, l2 = evaluate_model(
@@ -246,7 +246,7 @@ def main():
                 subkey, key = jax.random.split(key)
                 y_idx, x_idx = sample_points(
                     subkey, y, x,
-                    num_samples=configs.num_samples
+                    num_samples=configs.num_pde_samples
                 )
                 x_data = jnp.stack([x[x_idx], y[y_idx]], axis=-1) # (num_samples, 2)
                 coords["data"] = x_data
@@ -258,7 +258,10 @@ def main():
                 # sample for PDE loss
                 subkey, key = jax.random.split(key)
                 cur_reynolds_range = configs.re_range
-                cur_reynolds_range_normed = configs.normalize_re(cur_reynolds_range),
+                cur_reynolds_range_normed = (
+                    configs.normalize_re(cur_reynolds_range[0]),
+                    configs.normalize_re(cur_reynolds_range[1]),
+                )
                 u_pde = func_sampler.resample(
                     subkey,
                     u_range=cur_reynolds_range_normed,
@@ -319,14 +322,8 @@ def main():
                     writer.add_scalar(f"weight/weight_{active_loss_names[i]}", w.item(), num_train_step)
 
                 writer.flush()
-
-            if num_train_step % configs.save_every == 0 and configs.save_every > 0:
-                eqx.tree_serialise_leaves(
-                    os.path.join(save_dir, f"model_epoch_{num_train_step}.eqx"),
-                    model,
-                )
-        
-        writer.close()
+                
+            num_train_step += 1
                 
     
 if __name__ == "__main__":
