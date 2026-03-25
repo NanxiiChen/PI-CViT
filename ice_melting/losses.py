@@ -217,13 +217,17 @@ class Losses(eqx.Module):
             s_n, sum_sq = carry
             s_np1 = predict_state(t_next)  # (B, C, Ny, Nx)
             
-            k1 = rhs(s_n)
-            k2 = rhs(s_n + 0.5 * dt * k1)
-            k3 = rhs(s_n + 0.5 * dt * k2)
-            k4 = rhs(s_n + dt * k3)
-            s_rk4 = s_n + (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4)  # (B, C, Ny, Nx)
+            # k1 = rhs(s_n)
+            # k2 = rhs(s_n + 0.5 * dt * k1)
+            # k3 = rhs(s_n + 0.5 * dt * k2)
+            # k4 = rhs(s_n + dt * k3)
+            # s_rk4 = s_n + (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4)  # (B, C, Ny, Nx)
+            # defect = s_np1 - s_rk4  # (B, C, Ny, Nx)
             
-            defect = s_np1 - s_rk4  # (B, C, Ny, Nx)
+            
+            # simple forward Euler for now
+            s_euler = s_n + dt * rhs(s_n)  # (B, C, Ny, Nx)
+            defect = s_np1 - s_euler  # (B, C, Ny, Nx)
             defect_sq = jnp.sum(defect**2, axis=1)  # (B, Ny, Nx)
             
             step_sum = jnp.sum(defect_sq)  # scalar
