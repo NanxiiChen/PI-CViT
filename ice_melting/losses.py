@@ -4,6 +4,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from jax.flatten_util import ravel_pytree
+from einops import rearrange
 
 from models.cvit import CViT
 from models.causal import CausalWeightor
@@ -139,7 +140,105 @@ class Losses(eqx.Module):
                 "causal_weights": causal_weights
             }
             
-    
+    def loss_pde_fd(
+        self, 
+        model: eqx.Module,
+        u: jnp.ndarray,
+        params: jnp.ndarray,
+        cfg: Config,
+        **kwargs
+    ):
+        B, C, Ny, Nx = u.shape
+        lx = getattr(cfg, "lx", 1.0)
+        ly = getattr(cfg, "ly", 1.0)
+        dx = lx / (Nx - 1) # non-periodic domain, so divide by (N-1)
+        dy = ly / (Ny - 1) # non-periodic domain, so divide by (N-1)
+        # dt = getattr(cfg, "dt", 0.01)
+        Nt = getattr(cfg, "Nt", 100)
+        M_val = cfg.M_val
+        lbd = cfg.lbd
+        epsilon = cfg.epsilon
+        Lc = cfg.Lc
+        Tc = cfg.Tc
+        dt = (cfg.temporal_domain[1] - cfg.temporal_domain[0]) / Nt
+        
+        # normalize coordinates in [0, 1]
+        x = jnp.linspace(cfg.spatial_domain[0][0], cfg.spatial_domain[0][1], Nx)
+        y = jnp.linspace(cfg.spatial_domain[1][0], cfg.spatial_domain[1][1], Ny)
+        xx, yy = jnp.meshgrid(x, y, indexing="xy")
+        x_pde = jnp.stack([xx.ravel(), yy.ravel()], axis=-1)  # (N_query, 2)
+        ts = jnp.linspace(cfg.temporal_domain[0], cfg.temporal_domain[1], Nt+1) # (Nt+1,)
+        
+        
+        def laplacian(f, dx=dx, dy=dy):
+            # shape of f: (Ny, Nx)
+            # non-periodic finite difference for Laplacian
+            d2f_dx2 = jnp.zeros_like(f)
+            d2f_dy2 = jnp.zeros_like(f)
+            
+            # second-order central difference in the interior
+            d2f_dx2 = d2f_dx2.at[:, 1:-1].set((f[:, 2:] - 2*f[:, 1:-1] + f[:, :-2]) / (dx**2))
+            d2f_dy2 = d2f_dy2.at[1:-1, :].set((f[2:, :] - 2*f[1:-1, :] + f[:-2, :]) / (dy**2))
+            
+            # second-order one-sided difference at the boundaries
+            d2f_dx2 = d2f_dx2.at[:, 0].set((2*f[:, 0] - 5*f[:, 1] + 4*f[:, 2] - f[:, 3]) / (dx**2))
+            d2f_dx2 = d2f_dx2.at[:, -1].set((2*f[:, -1] - 5*f[:, -2] + 4*f[:, -3] - f[:, -4]) / (dx**2))
+            d2f_dy2 = d2f_dy2.at[0, :].set((2*f[0, :] - 5*f[1, :] + 4*f[2, :] - f[3, :]) / (dy**2))
+            d2f_dy2 = d2f_dy2.at[-1, :].set((2*f[-1, :] - 5*f[-2, :] + 4*f[-3, :] - f[-4, :]) / (dy**2))
+            
+            return d2f_dx2 + d2f_dy2
+        
+        
+        def rhs(state):
+            # state shape: (B, C, Ny, Nx)
+            phi = state[:, 0, :, :]  # (B, Ny, Nx)
+            F_phi = (phi**2 - 1) **2 / 4.0
+            dF_dphi = phi**3 - phi
+            laplacian_phi = jax.vmap(laplacian)(phi)  # (B, Ny, Nx)
+            # dphi_dt / Tc = M_val * (laplacian_phi / (Lc**2) - dF_dphi / epsilon**2) - lbd * jnp.sqrt(2 * F_phi) / epsilon
+            rhs = Tc * M_val * (laplacian_phi / (Lc**2) - dF_dphi / epsilon**2) - Tc * lbd * jnp.sqrt(2 * F_phi) / epsilon
+            return rhs[:, None, :, :] # (B, 1, Ny, Nx)
+        
+        enc_out = jax.vmap(model.encoder)(u)  # (B, N_patch, emb_dim)
+        decode_ckpt = jax.checkpoint(
+            lambda enc, xq, tq: model.decoder(enc, xq, tq)
+        )
+        
+        def predict_state(t):
+            t_pde = jnp.full((x_pde.shape[0], 1), t)  # (N_query, 1)
+            sol = jax.vmap(
+                decode_ckpt, in_axes=(0, None, None)
+            )(enc_out, x_pde, t_pde)  # (B, Ny*Nx, out_dim)
+            return rearrange(sol, "b (h w) c -> b c h w", h=int(Ny), w=int(Nx))  # (B, C, Ny, Nx)
+        
+        s0 = u  # (B, C, Ny, Nx)
+        
+        def step(carry, t_next):
+            s_n, sum_sq = carry
+            s_np1 = predict_state(t_next)  # (B, C, Ny, Nx)
+            
+            k1 = rhs(s_n)
+            k2 = rhs(s_n + 0.5 * dt * k1)
+            k3 = rhs(s_n + 0.5 * dt * k2)
+            k4 = rhs(s_n + dt * k3)
+            s_rk4 = s_n + (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4)  # (B, C, Ny, Nx)
+            
+            defect = s_np1 - s_rk4  # (B, C, Ny, Nx)
+            defect_sq = jnp.sum(defect**2, axis=1)  # (B, Ny, Nx)
+            
+            step_sum = jnp.sum(defect_sq)  # scalar
+            step_mean = jnp.mean(defect_sq)  # scalar
+            return (s_np1, sum_sq + step_sum), step_mean
+        
+        (_, total_sq), residual_t_mean = jax.lax.scan(
+            step,
+            (s0, jnp.array(0.0, dtype=u.dtype)),
+            ts[1:]
+        )
+        
+        mse_loss = total_sq / (B * Ny * Nx * Nt)
+        return mse_loss, {"residual_t_mean": residual_t_mean}
+
     
     def residual_ic(self,
                     model: Union[eqx.Module, CViT],
@@ -326,6 +425,8 @@ class Losses(eqx.Module):
             elif name == "loss_irr":
                 x, t = pde_coords[:, :-1], pde_coords[:, -1:]
             elif name == "loss_bc":
+                x, t = None, None
+            elif name == "loss_pde_fd":
                 x, t = None, None
             else:
                 raise ValueError(f"Unknown loss component: {name}")
