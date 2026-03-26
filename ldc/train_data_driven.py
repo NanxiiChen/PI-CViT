@@ -272,6 +272,7 @@ def main():
                 if configs.physics_on_data:
                     # Evaluate PDE loss on the labeled data points
                     pde_and_bc_coords["pde"] = x_data
+                    u_pde = u_data
                 else:
                     # Sample PDE points separately from data points
                     # that is, keep using `pde_and_bc_coords` for PDE loss
@@ -285,6 +286,14 @@ def main():
                         lambda x: jax.device_put(x, replicated_sharding),
                         coords
                     )
+                    if u_data.shape[0] == 1:
+                        # if batch size is 1, we cannot shard the data across devices
+                        # so we replicate it instead
+                        u_data = jnp.repeat(u_data, num_devices, axis=0)
+                    if ref_data.shape[0] == 1:
+                        ref_data = jnp.repeat(ref_data, num_devices, axis=0)
+                    if u_pde.shape[0] == 1:
+                        u_pde = jnp.repeat(u_pde, num_devices, axis=0)
                     u_data = jax.device_put(u_data, data_sharding)
                     u_pde = jax.device_put(u_pde, data_sharding)
                     ref_data = jax.device_put(ref_data, data_sharding_ref)

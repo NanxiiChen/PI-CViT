@@ -78,7 +78,7 @@
                 "--set",
                 "save_every=-1",
                 "--set",
-                "dataset_size=256",
+                "dataset_size=4",
             ]
         },
         {

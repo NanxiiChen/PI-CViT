@@ -274,6 +274,7 @@ def main():
                     # we evaluate pde loss on the sampled data points
                     pde_coords = data_coords
                     ic_uv_coords = pde_and_ic_coords["ic_uv"]
+                    u_pde = u_data
                 else:
                     # we sample another set of coordinates for pde loss
                     pde_coords = pde_and_ic_coords["pde"]
