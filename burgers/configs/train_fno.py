@@ -47,12 +47,12 @@ class Config:
         max_min_weight=0.99,
     )
     
-    num_epochs = 20000
+    num_epochs = 15000
     initial_lr = 5e-4
     decay_every = 200
     decay_rate = 0.95
     min_lr = 1e-5
-    save_every = 500
+    save_every = 1000
     log_every = 5
     test_every = 25
     resample_u_every = 25
