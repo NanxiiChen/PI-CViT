@@ -207,7 +207,7 @@ def generate_periodic_ics_batch_jax(keys, Nx, Ny, length_scale=0.1, amplitude=1.
 
 
 if __name__ == "__main__":
-    N_samples = 1024
+    N_samples = 100
     Nx, Ny = 64, 64
     t_end = 1.0
     dt = 0.001

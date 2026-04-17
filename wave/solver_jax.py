@@ -163,7 +163,7 @@ def generate_periodic_field_batch_jax(keys, Nx, Ny, length_scale=0.1, amplitude=
 
 
 if __name__ == "__main__":
-    N = 1024
+    N = 100
     Nx, Ny = 64, 64
     t_end = 1.0
     dt = 1e-4
