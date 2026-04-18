@@ -18,6 +18,8 @@ tmp/
 figures/*.pdf
 count_params.ipynb
 eval.ipynb
+demo.ipynb
+plot.ipynb
 *.png
 
 # C extensions
