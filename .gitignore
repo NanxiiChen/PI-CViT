@@ -17,6 +17,8 @@ data/*
 tmp/
 figures/*.pdf
 count_params.ipynb
+eval.ipynb
+*.png
 
 # C extensions
 *.so
