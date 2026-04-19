@@ -267,10 +267,13 @@ def main():
             )
 
             writer.add_scalar("loss/total", total_loss.item(), epoch)
+            writer.add_scalar("gradient_alignment", aux_vars.get("alignment", 0.0), epoch)
+            gradnorms = aux_vars.get("gradnorms", [0.0] * len(active_losses))
             for i, lv in enumerate(loss_values):
                 writer.add_scalar(f"loss/loss_{active_loss_names[i]}", lv.item(), epoch)
             for i, w in enumerate(weights):
                 writer.add_scalar(f"weight/weight_{active_loss_names[i]}", w.item(), epoch)
+                writer.add_scalar(f"gradnorm/gradnorm_{active_loss_names[i]}", gradnorms[i].item(), epoch)
 
             writer.flush()
 

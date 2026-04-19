@@ -350,7 +350,9 @@ class Losses(eqx.Module):
             aux_vars.update(aux)
             
         if getattr(cfg, "use_gradnorm", True):
-            weights = self.grad_norm_weights(grads)
+            weights, gradnorms, alignment = self.grad_norm_weights(grads)
+            aux_vars["gradnorms"] = gradnorms
+            aux_vars["alignment"] = alignment
         else:
             weights = jnp.ones(len(active_losses))
 
@@ -372,14 +374,30 @@ class Losses(eqx.Module):
     def grad_norm_weights(self, grads: list, eps=1e-6):
         def tree_norm(pytree):
             r, _ = ravel_pytree(pytree)
-            return jnp.linalg.norm(r)
+            return jnp.linalg.norm(r), r 
 
-        grad_norms = jnp.array([tree_norm(g) for g in grads])
+        # grad_norms = jnp.array([tree_norm(g) for g in grads])
+        grad_norms = []
+        flat_grads = []
+        for g in grads:
+            norm, flat = tree_norm(g)
+            grad_norms.append(norm)
+            flat_grads.append(flat)
+        grad_norms = jnp.array(grad_norms)  # (num_losses,)
+        flat_grads = jnp.stack(flat_grads, axis=0)  # (num_losses, num_params)
+        
+            
         grad_norms = jnp.clip(grad_norms, eps, 1 / eps)
         weights = jnp.mean(grad_norms) / grad_norms
         weights = jnp.nan_to_num(weights)
         weights = jnp.clip(weights, eps, 1 / eps)
-        return jax.lax.stop_gradient(weights)
+        
+        # gradient alignment:
+        unit_grads = flat_grads / grad_norms[:, None]  # (num_losses, num_params)
+        mean_unit_grad = jnp.mean(unit_grads, axis=0)  # (num_params,)
+        alignment = 2 * jnp.linalg.norm(mean_unit_grad) ** 2 - 1  # [0, 1], 1 means perfectly aligned, 0 means orthogonal
+        
+        return jax.lax.stop_gradient(weights), grad_norms, alignment
 
 
         
