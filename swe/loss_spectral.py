@@ -82,7 +82,7 @@ class Losses(eqx.Module):
 
         if bool(getattr(cfg, "use_causality", False)) and self.causal_weightor is not None:
             eps = kwargs.get("causal_eps", None)
-            residuals_for_causal = jnp.sqrt(jnp.clip(res_sq_t, a_min=1e-30))
+            residuals_for_causal = jnp.sqrt(jnp.clip(res_sq_t, min=1e-30))
             loss, loss_chunks, causal_weights = self.causal_weightor.compute_causal_loss(
                 residuals_for_causal, ts, eps=eps
             )
@@ -137,7 +137,7 @@ class Losses(eqx.Module):
 
         if bool(getattr(cfg, "use_causality", False)) and self.causal_weightor is not None:
             eps = kwargs.get("causal_eps", None)
-            residuals_for_causal = jnp.sqrt(jnp.clip(res_sq_t, a_min=1e-30))
+            residuals_for_causal = jnp.sqrt(jnp.clip(res_sq_t, min=1e-30))
             loss, loss_chunks, causal_weights = self.causal_weightor.compute_causal_loss(
                 residuals_for_causal, ts, eps=eps
             )

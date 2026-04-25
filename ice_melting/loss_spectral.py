@@ -102,7 +102,7 @@ def _allen_cahn_rhs_normalized_time(
     lap = _lap_2d(phi, lx=lx, ly=ly, spatial_scheme=spatial_scheme)
     F_phi = 0.25 * (phi**2 - 1.0) ** 2
     dF_dphi = phi**3 - phi
-    source = jnp.sqrt(jnp.clip(2.0 * F_phi, a_min=0.0)) / epsilon
+    source = jnp.sqrt(jnp.clip(2.0 * F_phi, min=0.0)) / epsilon
 
     rhs = tc * (M_val * (lap / (lc**2) - dF_dphi / (epsilon**2)) - lbd * source)
     return rhs
@@ -167,7 +167,7 @@ class Losses(eqx.Module):
 
             F_phi = 0.25 * (phi**2 - 1.0) ** 2
             dF_dphi = phi**3 - phi
-            source = jnp.sqrt(jnp.clip(2.0 * F_phi, a_min=0.0)) / epsilon
+            source = jnp.sqrt(jnp.clip(2.0 * F_phi, min=0.0)) / epsilon
 
             residual = phit / tc - M_val * (lap / (lc**2) - dF_dphi / (epsilon**2)) + lbd * source
             res_sq_t = jnp.mean(residual[:, 1:] ** 2, axis=(-2, -1))  # (B,T)
@@ -202,7 +202,7 @@ class Losses(eqx.Module):
 
         if bool(getattr(cfg, "use_causality", False)) and self.causal_weightor is not None:
             eps = kwargs.get("causal_eps", None)
-            residuals_for_causal = jnp.sqrt(jnp.clip(res_sq_t, a_min=1e-30))
+            residuals_for_causal = jnp.sqrt(jnp.clip(res_sq_t, min=1e-30))
             loss, loss_chunks, causal_weights = self.causal_weightor.compute_causal_loss(
                 residuals_for_causal, ts, eps=eps
             )

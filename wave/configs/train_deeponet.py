@@ -46,7 +46,7 @@ class Config:
         basis_dim=512,
         out_dim=1,
         coord_dim=5,              # sinx, cosx, siny, cosy, t
-        act="tanh",
+        act="gelu",
     )
 
     use_causality = True

@@ -87,4 +87,4 @@ class CausalWeightor:
 
         if not isinstance(new_eps, jnp.ndarray):
             new_eps = jnp.array(new_eps)
-        return jnp.clip(new_eps, a_min=0.0, a_max=max_eps)
+        return jnp.clip(new_eps, min=0.0, max=max_eps)

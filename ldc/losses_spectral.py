@@ -75,7 +75,7 @@ class Losses(eqx.Module):
             re_val = jax.vmap(cfg.denormalize_re)(re_norm)  # (B,)
         else:
             re_val = re_norm
-        nu = 1.0 / jnp.clip(re_val, a_min=1e-8)  # (B,)
+        nu = 1.0 / jnp.clip(re_val, min=1e-8)  # (B,)
 
         ux, uy, lap_u = _spectral_grad_lap_2d(u, lx=lx, ly=ly)
         vx, vy, lap_v = _spectral_grad_lap_2d(v, lx=lx, ly=ly)

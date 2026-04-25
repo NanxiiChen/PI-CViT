@@ -1,5 +1,31 @@
 # PI-CViT: Physics-Informed Continuous Vision Transformer for Solving Parametric PDEs
 
+## Dependencies
+
+```bash
+(base) root@autodl-pro-7761fd73f779:~/PI-CViT# pip show jax jaxlib
+Name: jax
+Version: 0.7.2
+Summary: Differentiate, compile, and transform Numpy code.
+Home-page: https://github.com/jax-ml/jax
+Author: JAX team
+Author-email: jax-dev@google.com
+License: Apache-2.0
+Location: /root/miniconda3/lib/python3.12/site-packages
+Requires: jaxlib, ml_dtypes, numpy, opt_einsum, scipy
+Required-by: chex, equinox, optax
+---
+Name: jaxlib
+Version: 0.7.2
+Summary: XLA library for JAX
+Home-page: https://github.com/jax-ml/jax
+Author: JAX team
+Author-email: jax-dev@google.com
+License: Apache-2.0
+Location: /root/miniconda3/lib/python3.12/site-packages
+Requires: ml_dtypes, numpy, scipy
+Required-by: chex, jax, optax
+```
 
 ## Ablation Study
 

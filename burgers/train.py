@@ -47,7 +47,6 @@ def train_step(
         x_pde, t_pde, cfg,
         last_weights, alpha_w,
         weight_coef, active_losses,
-        opt_state=state,
         **kwargs
     )
     total_grad = jax.tree.map(lambda x: jnp.nan_to_num(x), total_grad)
@@ -268,15 +267,10 @@ def main():
             )
 
             writer.add_scalar("loss/total", total_loss.item(), epoch)
-            writer.add_scalar("gradient_alignment/raw", aux_vars.get("alignment", 0.0), epoch)
-            if "soap_alignment" in aux_vars:
-                writer.add_scalar("gradient_alignment/soap", aux_vars["soap_alignment"], epoch)
-            gradnorms = aux_vars.get("gradnorms", [0.0] * len(active_losses))
             for i, lv in enumerate(loss_values):
                 writer.add_scalar(f"loss/loss_{active_loss_names[i]}", lv.item(), epoch)
             for i, w in enumerate(weights):
                 writer.add_scalar(f"weight/weight_{active_loss_names[i]}", w.item(), epoch)
-                writer.add_scalar(f"gradnorm/gradnorm_{active_loss_names[i]}", gradnorms[i].item(), epoch)
 
             writer.flush()
 

@@ -352,12 +352,7 @@ class Losses(eqx.Module):
             aux_vars.update(aux)
             
         if getattr(cfg, "use_gradnorm", True):
-            opt_state = kwargs.get("opt_state", None)
-            weights, gradnorms, alignment, soap_alignment = self.grad_norm_weights(grads, opt_state=opt_state)
-            aux_vars["gradnorms"] = gradnorms
-            aux_vars["alignment"] = alignment
-            if soap_alignment is not None:
-                aux_vars["soap_alignment"] = soap_alignment
+            weights = self.grad_norm_weights(grads)
         else:
             weights = jnp.ones(len(active_losses))
 
@@ -376,71 +371,17 @@ class Losses(eqx.Module):
         return (total_loss, (losses, weights, aux_vars)), total_grad
         
         
-    @staticmethod
-    def _extract_soap_state(opt_state):
-        """Recursively find SOAPState inside an optax chain state."""
-        if isinstance(opt_state, SOAPState):
-            return opt_state
-        if hasattr(opt_state, '_fields'):
-            for field in opt_state._fields:
-                result = Losses._extract_soap_state(getattr(opt_state, field))
-                if result is not None:
-                    return result
-        if isinstance(opt_state, (tuple, list)):
-            for item in opt_state:
-                result = Losses._extract_soap_state(item)
-                if result is not None:
-                    return result
-        return None
-
-    def grad_norm_weights(self, grads: list, opt_state=None, eps=1e-6):
+    def grad_norm_weights(self, grads: list, eps=1e-6):
         def tree_norm(pytree):
             r, _ = ravel_pytree(pytree)
-            return jnp.linalg.norm(r), r
+            return jnp.linalg.norm(r)
 
-        grad_norms = []
-        flat_grads = []
-        for g in grads:
-            norm, flat = tree_norm(g)
-            grad_norms.append(norm)
-            flat_grads.append(flat)
-        grad_norms = jnp.array(grad_norms)  # (num_losses,)
-        flat_grads = jnp.stack(flat_grads, axis=0)  # (num_losses, num_params)
-
+        grad_norms = jnp.array([tree_norm(g) for g in grads])
         grad_norms = jnp.clip(grad_norms, eps, 1 / eps)
         weights = jnp.mean(grad_norms) / grad_norms
         weights = jnp.nan_to_num(weights)
         weights = jnp.clip(weights, eps, 1 / eps)
-
-        # gradient alignment on raw gradients
-        unit_grads = flat_grads / grad_norms[:, None]  # (num_losses, num_params)
-        mean_unit_grad = jnp.mean(unit_grads, axis=0)  # (num_params,)
-        alignment = 2 * jnp.linalg.norm(mean_unit_grad) ** 2 - 1  # [0, 1], 1 means perfectly aligned, 0 means orthogonal
-
-        # alignment on SOAP-preconditioned gradients (diagnostic only, does not affect weights)
-        soap_alignment = None
-        if opt_state is not None:
-            soap_state = self._extract_soap_state(opt_state)
-            if soap_state is not None:
-                proj_grads = [
-                    jtu.tree_map(lambda g, q: project(g, q), g, soap_state.Q)
-                    for g in grads
-                ]
-                proj_flat = []
-                proj_norms = []
-                for g in proj_grads:
-                    n, f = tree_norm(g)
-                    proj_norms.append(n)
-                    proj_flat.append(f)
-                proj_norms = jnp.clip(jnp.array(proj_norms), eps, 1 / eps)
-                proj_flat = jnp.stack(proj_flat, axis=0)
-                unit_proj = proj_flat / proj_norms[:, None]
-                mean_unit_proj = jnp.mean(unit_proj, axis=0)
-                soap_alignment = 2 * jnp.linalg.norm(mean_unit_proj) ** 2 - 1
-
-        return jax.lax.stop_gradient(weights), grad_norms, alignment, soap_alignment
-
-
+        return jax.lax.stop_gradient(weights)
         
         
         
