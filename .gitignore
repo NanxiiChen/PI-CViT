@@ -21,6 +21,7 @@ eval.ipynb
 demo.ipynb
 plot.ipynb
 *.png
+ice_melting/logs/
 
 # C extensions
 *.so
