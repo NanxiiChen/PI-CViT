@@ -4,15 +4,17 @@ This repository contains the code for the paper "On training of physics-informed
 
 ## Overview
 
+<img src="img/masterfigure.png" alt="masterfigure" width="600"/>
 
-![master](img/masterfigure.png)
 
 Error distribution of different models on each benchmark problem:
-![errors](img/error_distribution.png)
+<img src="img/error_distribution.png" alt="error_distribution" width="600"/>
 
 Model performance with different data regimes:
-![sampling_regime](img/sampling_regimes.png)
-![data_vs_physics](img/data_vs_physics.png)
+<img src="img/sampling_regimes.png" alt="data_regimes" width="600"/>
+
+<img src="img/data_vs_physics.png" alt="data_vs_physics" width="480"/>
+
 
 ## Quick Start
 
