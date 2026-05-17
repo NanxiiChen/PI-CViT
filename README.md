@@ -1,167 +1,26 @@
-# PI-CViT: Physics-Informed Continuous Vision Transformer for Solving Parametric PDEs
+# PI-CViT
 
-## Dependencies
+This repository contains the code for the paper "On training of physics-informed neural operator for solving parametric PDEs". 
 
+## Overview
+
+![master](img/masterfigure.png)
+![errors](img/error_distribution.png)
+![data_vs_physics](img/data_vs_physics.png)
+
+## Quick Start
+
+Taking `Burgers' Equation` as an example, we provide the quick start guide for training `PI-CViT` on `Burgers' Equation`.
+
+To generate the reference solution for `Burgers' Equation`, configure the parameters in `burgers/solver_jax.py` and run the following command in the top level directory of the repository:
 ```bash
-(base) root@autodl-pro-7761fd73f779:~/PI-CViT# pip show jax jaxlib
-Name: jax
-Version: 0.7.2
-Summary: Differentiate, compile, and transform Numpy code.
-Home-page: https://github.com/jax-ml/jax
-Author: JAX team
-Author-email: jax-dev@google.com
-License: Apache-2.0
-Location: /root/miniconda3/lib/python3.12/site-packages
-Requires: jaxlib, ml_dtypes, numpy, opt_einsum, scipy
-Required-by: chex, equinox, optax
----
-Name: jaxlib
-Version: 0.7.2
-Summary: XLA library for JAX
-Home-page: https://github.com/jax-ml/jax
-Author: JAX team
-Author-email: jax-dev@google.com
-License: Apache-2.0
-Location: /root/miniconda3/lib/python3.12/site-packages
-Requires: ml_dtypes, numpy, scipy
-Required-by: chex, jax, optax
+python burgers/solver_jax.py
 ```
 
-## Ablation Study
-
-### GradNorm
-
-Train `FNO` without `GradNorm`:
-
+This will generate the reference solution and save it in `./data/burgers/`. Then train different models on `Burgers' Equation` with the following commands:
 ```bash
-python -m wave.train_pifno \
-    --configs train_fno \
-    --set use_gradnorm=False \
-    --set save_every=-1 \
-    --set log_every=50 \
-    --set test_every=200 \
-    --set save_dir=./logs/wave/fno/no_gradnorm
-
-python -m swe.train_pifno \
-    --configs train_fno \
-    --set use_gradnorm=False \
-    --set save_every=-1 \
-    --set log_every=50 \
-    --set test_every=200 \
-    --set save_dir=./logs/swe/fno/no_gradnorm
+python -m burgers.train --configs train_cvit --set save_dir=<YOUR_LOG_DIR> --set data_dir=./data/burgers
+python -m burgers.train --configs train_deeponet --set save_dir=<YOUR_LOG_DIR> --set data_dir=./data/burgers
+python -m burgers.train_pifno --configs train_fno --set save_dir=<YOUR_LOG_DIR> --set data_dir=./data/burgers
 ```
-
-Train `FNO` without `Causal`:
-
-```bash
-python -m burgers.train_pifno \
-    --configs train_fno \
-    --set use_causality=False \
-    --set save_every=-1 \
-    --set log_every=50 \
-    --set test_every=200 \
-    --set save_dir=./logs/burgers/fno/no_causal 
-
-python -m ice_melting.train_pifno \
-    --configs train_fno \
-    --set use_causality=False \
-    --set save_every=-1 \
-    --set log_every=50 \
-    --set test_every=200 \
-    --set save_dir=./logs/ice_melting/fno/no_causal
-
-python -m wave.train_pifno \
-    --configs train_fno \
-    --set use_causality=False \
-    --set save_every=-1 \
-    --set log_every=50 \
-    --set test_every=200 \
-    --set save_dir=./logs/wave/fno/no_causal
-
-python -m swe.train_pifno \
-    --configs train_fno \
-    --set use_causality=False \
-    --set save_every=-1 \
-    --set log_every=50 \
-    --set test_every=200 \
-    --set save_dir=./logs/swe/fno/no_causal
-```
-
-### Number of training data series
-
-#### Shallow Water Equations
-
-First generate the dataset by running the following command in the top level directory of the repository:
-```bash
-python swe/solver_jax.py
-```
-This scripts will generate 1024 training data series. The dataset is saved in `./data/swe/f10/swe_training.npz` by default. The size of the training dataset is about 4.8GB.
-
-
-Train with pure data:
-
-```bash
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'ic_h', 'ic_uv')" --set dataset_size=1024 --set save_name=dataset_size_1024 --set save_dir=./logs/swe/cvit/pure_data/ 
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'ic_h', 'ic_uv')" --set dataset_size=512 --set save_name=dataset_size_512 --set save_dir=./logs/swe/cvit/pure_data/ 
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'ic_h', 'ic_uv')" --set dataset_size=256 --set save_name=dataset_size_256 --set save_dir=./logs/swe/cvit/pure_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'ic_h', 'ic_uv')" --set dataset_size=128 --set save_name=dataset_size_128 --set save_dir=./logs/swe/cvit/pure_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'ic_h', 'ic_uv')" --set dataset_size=64 --set save_name=dataset_size_64 --set save_dir=./logs/swe/cvit/pure_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'ic_h', 'ic_uv')" --set dataset_size=32 --set save_name=dataset_size_32 --set save_dir=./logs/swe/cvit/pure_data/
-```
-
-Train with physics on unlabled data:
-
-```bash
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=1024 --set physics_on_data=False --set save_name=dataset_size_1024 --set save_dir=./logs/swe/cvit/physics_on_unlabeled_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=512 --set physics_on_data=False --set save_name=dataset_size_512 --set save_dir=./logs/swe/cvit/physics_on_unlabeled_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=256 --set physics_on_data=False --set save_name=dataset_size_256 --set save_dir=./logs/swe/cvit/physics_on_unlabeled_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=128 --set physics_on_data=False --set save_name=dataset_size_128 --set save_dir=./logs/swe/cvit/physics_on_unlabeled_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=64 --set physics_on_data=False --set save_name=dataset_size_64 --set save_dir=./logs/swe/cvit/physics_on_unlabeled_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=32 --set physics_on_data=False --set save_name=dataset_size_32 --set save_dir=./logs/swe/cvit/physics_on_unlabeled_data/
-```
-
-Train with physics on labeled data:
-
-```bash
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=1024 --set physics_on_data=True --set save_name=dataset_size_1024 --set save_dir=./logs/swe/cvit/physics_on_labeled_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=512 --set physics_on_data=True --set save_name=dataset_size_512 --set save_dir=./logs/swe/cvit/physics_on_labeled_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=256 --set physics_on_data=True --set save_name=dataset_size_256 --set save_dir=./logs/swe/cvit/physics_on_labeled_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=128 --set physics_on_data=True --set save_name=dataset_size_128 --set save_dir=./logs/swe/cvit/physics_on_labeled_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=64 --set physics_on_data=True --set save_name=dataset_size_64 --set save_dir=./logs/swe/cvit/physics_on_labeled_data/
-python -m swe.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'ic_h', 'ic_uv')" --set dataset_size=32 --set physics_on_data=True --set save_name=dataset_size_32 --set save_dir=./logs/swe/cvit/physics_on_labeled_data/
-```
-
-
-#### Lid-Driven Cavity Flow
-
-Download the dataset from [here](https://drive.google.com/file/d/1THL4CJs1TkIQo7DiYXiTyFN6Hmmy4hSy/view?usp=drive_link). Then put the dataset `ldc_training.npz` in `./data/ldc/`, which contains 256 training data series. 
-
-Train with pure data:
-
-```bash
-python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=256 --set save_name=dataset_size_256 --set save_dir=./logs/ldc/cvit/pure_data/
-python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=192 --set save_name=dataset_size_192 --set save_dir=./logs/ldc/cvit/pure_data/
-python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=128 --set save_name=dataset_size_128 --set save_dir=./logs/ldc/cvit/pure_data/
-python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=64 --set save_name=dataset_size_64 --set save_dir=./logs/ldc/cvit/pure_data/
-python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=32 --set save_name=dataset_size_32 --set save_dir=./logs/ldc/cvit/pure_data/
-```
-
-Train with physics on unlabeled data:
-
-```bash
-python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=256 --set physics_on_data=False --set save_name=dataset_size_256 --set save_dir=./logs/ldc/cvit/physics_on_unlabeled_data/
-python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=192 --set physics_on_data=False --set save_name=dataset_size_192 --set save_dir=./logs/ldc/cvit/physics_on_unlabeled_data/
-python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=128 --set physics_on_data=False --set save_name=dataset_size_128 --set save_dir=./logs/ldc/cvit/physics_on_unlabeled_data/
-python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=64 --set physics_on_data=False --set save_name=dataset_size_64 --set save_dir=./logs/ldc/cvit/physics_on_unlabeled_data/
-python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=32 --set physics_on_data=False --set save_name=dataset_size_32 --set save_dir=./logs/ldc/cvit/physics_on_unlabeled_data/
-``` 
-
-Train with physics on labeled data:
-
-```bash
-python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=256 --set physics_on_data=True --set save_name=dataset_size_256 --set save_dir=./logs/ldc/cvit/physics_on_labeled_data/
-python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=192 --set physics_on_data=True --set save_name=dataset_size_192 --set save_dir=./logs/ldc/cvit/physics_on_labeled_data/
-python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=128 --set physics_on_data=True --set save_name=dataset_size_128 --set save_dir=./logs/ldc/cvit/physics_on_labeled_data/
-python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=64 --set physics_on_data=True --set save_name=dataset_size_64 --set save_dir=./logs/ldc/cvit/physics_on_labeled_data/
-python -m ldc.train_data_driven --configs train_data --set active_loss_names="('data', 'momentum', 'continuity', 'bc_walls', 'bc_lid', 'bc_pressure')" --set dataset_size=32 --set physics_on_data=True --set save_name=dataset_size_32 --set save_dir=./logs/ldc/cvit/physics_on_labeled_data/
-```
+For other configurations, please refer to `burgers/configs/`.

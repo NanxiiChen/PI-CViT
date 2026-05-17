@@ -283,7 +283,7 @@ if __name__ == "__main__":
 
     print("\nSaving Results...")
     os.makedirs("./data/swe", exist_ok=True)
-    save_path = "./data/swe/f10/swe_training.npz"
+    save_path = "./data/swe/f10/swe_solutions.npz"
 
     x = jnp.linspace(0.0, 1.0, Nx, endpoint=False, dtype=jnp.float32)
     y = jnp.linspace(0.0, 1.0, Ny, endpoint=False, dtype=jnp.float32)

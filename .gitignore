@@ -20,7 +20,6 @@ count_params.ipynb
 eval.ipynb
 demo.ipynb
 plot.ipynb
-*.png
 ice_melting/logs/
 figures/
 training_logs/

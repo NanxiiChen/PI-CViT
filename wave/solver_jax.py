@@ -202,7 +202,7 @@ if __name__ == "__main__":
 
     os.makedirs("./data/wave", exist_ok=True)
     jnp.savez(
-        "./data/wave/wave_training.npz",
+        "./data/wave/wave_solutions.npz",
         solutions=jnp.transpose(solutions, (0, 1, 2, 4, 3)),
         times=times,
         x=x,
