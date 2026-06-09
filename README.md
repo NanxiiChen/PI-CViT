@@ -34,3 +34,15 @@ python -m burgers.train --configs train_deeponet --set save_dir=<YOUR_LOG_DIR> -
 python -m burgers.train_pifno --configs train_fno --set save_dir=<YOUR_LOG_DIR> --set data_dir=./data/burgers
 ```
 For other configurations, please refer to `burgers/configs/`.
+
+## Citation 
+
+If you find this work useful in your research, please consider citing:
+```bibtex
+@article{chen2026trainingpinos,
+  title={On the training of physics-informed neural operators for solving parametric partial differential equations},
+  author={Chen, Nanxi and Cui, Chuanjie and Chen, Airong and Wang, Sifan and Ma, Rujin},
+  journal={arXiv preprint arXiv:2606.06164},
+  year={2026}
+}
+```
