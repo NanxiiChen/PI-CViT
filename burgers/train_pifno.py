@@ -205,19 +205,25 @@ def main():
                 plt.close(fig)     
                 
         if epoch % configs.log_every == 0:
-            # ad 双项协议下 aux_vars 额外含 loss_pde / loss_anchor 与权重,
-            # rk4/fd 单损失路径不含这些键(逐项 log 便于看两项的相对进展)
+            # ad 双项协议下 aux_vars 额外含 loss_pde 与锚项(loss_ic 或
+            # loss_anchor) 及权重, rk4/fd 单损失路径不含这些键
             # 注意: 循环变量不能叫 key —— 会遮蔽外层的 PRNG key
-            parts = []
-            for term in ("loss_pde", "loss_anchor", "loss_ic"):
-                val = aux_vars.get(term, None)
-                if val is not None:
-                    parts.append(f"{term}: {val:.4e}")
+            terms = [
+                t for t in ("loss_pde", "loss_anchor", "loss_ic")
+                if aux_vars.get(t, None) is not None
+            ]
+            anchor_name = next(
+                (t.split("_", 1)[1] for t in terms if t != "loss_pde"), "anchor"
+            )
+            parts = [f"{t}: {aux_vars[t]:.4e}" for t in terms]
             w_vals = aux_vars.get("weights", None)
-            if w_vals is not None:
+            if w_vals is not None and len(terms) == len(w_vals):
                 parts.append(
                     "weights: ["
-                    + ", ".join(f"{float(w):.3e}" for w in w_vals)
+                    + ", ".join(
+                        f"{t.split('_', 1)[1]}={float(w):.3e}"
+                        for t, w in zip(terms, w_vals)
+                    )
                     + "]"
                 )
             print(
@@ -227,13 +233,11 @@ def main():
             )
 
             writer.add_scalar("loss/total", total_loss.item(), epoch)
-            for term in ("loss_pde", "loss_anchor", "loss_ic"):
-                val = aux_vars.get(term, None)
-                if val is not None:
-                    writer.add_scalar(f"loss/{term}", float(val), epoch)
-            if w_vals is not None:
+            for term in terms:
+                writer.add_scalar(f"loss/{term}", float(aux_vars[term]), epoch)
+            if w_vals is not None and len(terms) == len(w_vals):
                 writer.add_scalar("loss/w_pde", float(w_vals[0]), epoch)
-                writer.add_scalar("loss/w_anchor", float(w_vals[1]), epoch)
+                writer.add_scalar(f"loss/w_{anchor_name}", float(w_vals[1]), epoch)
             writer.flush()
 
         # 稀疏保存 + 兜底保存最后一帧（否则 save_every 不整除总 epoch 时
