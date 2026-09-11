@@ -63,8 +63,11 @@ def main():
     args = arg_parser.parse_args()
     configs_raw = load_configs(args.configs)
     configs = apply_overrides(configs_raw, args.set, strict=False)
-
-    save_dir = configs.save_dir + time.strftime("/%Y%m%d-%H%M%S")
+    save_name = getattr(configs, "save_name", None)
+    if save_name is None:
+        save_name = time.strftime("%Y%m%d-%H%M%S")
+    
+    save_dir = configs.save_dir + "/" + save_name
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
     
@@ -128,8 +131,14 @@ def main():
     opt_state = optimizer.init(eqx.filter(model, eqx.is_array))
     epochs = configs.num_epochs
     batch_u = None
+    # ad 双项 (loss_pde, loss_anchor) gradnorm 权重的 EMA 状态（镜像坐标协议
+    # train.py 的 last_weights 回传）
+    last_weights = jnp.ones(2)
     for epoch in range(epochs):
-        
+        # ad_time_sampling="random" 的时间配点采样 key（每步重采样；
+        # 其余 time_scheme/采样模式下该 key 不被使用）
+        colloc_key, key = jax.random.split(key)
+
         if epoch % configs.resample_u_every == 0 or epoch >= configs.warmup_epochs:
             subkey, key = jax.random.split(key)
             batch_u = func_sampler.resample(subkey)
@@ -161,7 +170,12 @@ def main():
             batch_u,
             configs,
             causal_eps=causal_eps,
+            colloc_key=colloc_key,
+            last_weights=last_weights,
         )
+        new_weights = aux_vars.get("weights", None)
+        if new_weights is not None:
+            last_weights = new_weights
 
         
         if configs.use_causality:
@@ -191,15 +205,41 @@ def main():
                 plt.close(fig)     
                 
         if epoch % configs.log_every == 0:
+            # ad 双项协议下 aux_vars 额外含 loss_pde / loss_anchor 与权重,
+            # rk4/fd 单损失路径不含这些键(逐项 log 便于看两项的相对进展)
+            # 注意: 循环变量不能叫 key —— 会遮蔽外层的 PRNG key
+            parts = []
+            for term in ("loss_pde", "loss_anchor"):
+                val = aux_vars.get(term, None)
+                if val is None:
+                    break
+                parts.append(f"{term}: {val:.4e}")
+            w_vals = aux_vars.get("weights", None)
+            if w_vals is not None:
+                parts.append(
+                    "weights: ["
+                    + ", ".join(f"{float(w):.3e}" for w in w_vals)
+                    + "]"
+                )
             print(
                 f"Epoch {epoch}/{epochs}, "
                 f"Total Loss: {total_loss:.4e}, "
+                + (", ".join(parts) + ", " if parts else "")
             )
 
             writer.add_scalar("loss/total", total_loss.item(), epoch)
+            for term in ("loss_pde", "loss_anchor"):
+                val = aux_vars.get(term, None)
+                if val is not None:
+                    writer.add_scalar(f"loss/{term}", float(val), epoch)
+            if w_vals is not None:
+                writer.add_scalar("loss/w_pde", float(w_vals[0]), epoch)
+                writer.add_scalar("loss/w_anchor", float(w_vals[1]), epoch)
             writer.flush()
 
-        if epoch % configs.save_every == 0:
+        # 稀疏保存 + 兜底保存最后一帧（否则 save_every 不整除总 epoch 时
+        # 训练好的最终模型不会被写出）
+        if epoch % configs.save_every == 0 or epoch == epochs - 1:
             eqx.tree_serialise_leaves(
                 os.path.join(save_dir, f"model_epoch_{epoch}.eqx"),
                 model,

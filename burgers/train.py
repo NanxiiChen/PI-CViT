@@ -56,7 +56,7 @@ def train_step(
 
 
 def main():
-    key = jax.random.PRNGKey(0)
+    
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument(
         "--configs",
@@ -73,9 +73,33 @@ def main():
     args = arg_parser.parse_args()
     configs_raw = load_configs(args.configs)
     configs = apply_overrides(configs_raw, args.set, strict=False)
+    # x64 must be enabled before any jax array is created (PRNGKey, model, ...)
+    precision = str(getattr(configs, "precision", "float32")).lower()
+    if precision in ("float64", "double", "fp64"):
+        jax.config.update("jax_enable_x64", True)
+        print("Precision: float64")
+    elif precision not in ("float32", "single", "fp32"):
+        raise ValueError(
+            f"Unsupported precision: {precision!r}, use 'float32' or 'float64'"
+        )
+    # `target_ts` is a plain sequence in configs and materialised here,
+    # so it picks up the active precision
+    configs.target_ts = jnp.asarray(configs.target_ts)
+    # widen config arrays that were created at import time under float32
+    if precision in ("float64", "double", "fp64"):
+        for name, value in vars(type(configs)).items():
+            if isinstance(value, jax.Array) and jnp.issubdtype(value.dtype, jnp.floating):
+                setattr(configs, name, value.astype(jnp.float64))
     pprint(vars(configs), sort_dicts=False)
+    init_key = getattr(configs, "init_key", 0)
+    print(f"Random seed: {init_key}")
+    key = jax.random.PRNGKey(init_key)
+    save_name = getattr(configs, "save_name", None)
+    if save_name is None:
+        save_name = time.strftime("%Y%m%d-%H%M%S")
     
-    save_dir = configs.save_dir + time.strftime("/%Y%m%d-%H%M%S")
+    save_dir = configs.save_dir + "/" + save_name
+    print(f"Save directory: {save_dir}")
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
     
@@ -171,6 +195,23 @@ def main():
         last_weights = jax.device_put(last_weights, replicated_sharding)
     
     epochs = configs.num_epochs
+
+    # finite-u ablation: pre-draw a fixed pool of input functions once;
+    # `u` seen during training is then restricted to this pool, while
+    # collocation coordinates keep being freely resampled. The pool key is
+    # split after model init, so with the same `init_key` the initial weights
+    # are identical to the free-sampling baseline.
+    num_u_pool = int(getattr(configs, "num_u_pool", 0) or 0)
+    u_pool = None
+    u_batch_size = configs.num_u_samples
+    if num_u_pool > 0:
+        pool_key, key = jax.random.split(key)
+        u_pool = func_sampler.resample(pool_key, num_samples=num_u_pool)  # (num_u_pool, C, H, W)
+        u_batch_size = min(configs.num_u_samples, num_u_pool)
+        print(
+            f"Finite input-function pool: {num_u_pool} functions, "
+            f"per-step batch: {u_batch_size} (free u sampling disabled)"
+        )
     
     batch_u = None
     x_pde = None
@@ -188,7 +229,12 @@ def main():
             
         if epoch % configs.resample_u_every == 0 or epoch >= configs.warmup_epochs:
             subkey, key = jax.random.split(key)
-            batch_u = func_sampler.resample(subkey)
+            if u_pool is not None:
+                # draw the batch from the fixed pool instead of fresh GRFs
+                pool_idx = jax.random.choice(subkey, num_u_pool, (u_batch_size,), replace=False)
+                batch_u = u_pool[pool_idx]
+            else:
+                batch_u = func_sampler.resample(subkey)
             
             if configs.use_multi_gpu:
                 batch_u = jax.device_put(batch_u, data_sharding)
@@ -212,9 +258,14 @@ def main():
         
         # at the warmup stage, we apply extra weighting to the IC loss
         # after warmup stage, all losses will be tuned by the GradNorm weights only
-        weight_coef = jnp.array([0.5, 2.0]) \
-            if epoch < configs.warmup_epochs \
-            else jnp.array([1.0] * len(active_losses))
+        if configs.optimizer_name == "soap":
+            weight_coef = jnp.array([0.5, 2.0]) \
+                if epoch < configs.warmup_epochs \
+                else jnp.array([1.0] * len(active_losses))
+        elif configs.optimizer_name == "adam":
+            weight_coef = jnp.array([0.5, 5.0]) \
+                if epoch < configs.warmup_epochs \
+                else jnp.array([1.0] * len(active_losses))            
         model, opt_state, total_loss, loss_values, weights, aux_vars = train_step(
             model,
             loss_fn,
@@ -274,7 +325,7 @@ def main():
 
             writer.flush()
 
-        if epoch % configs.save_every == 0 and configs.save_every > 0:
+        if configs.save_every > 0 and epoch % configs.save_every == 0:
             eqx.tree_serialise_leaves(
                 os.path.join(save_dir, f"model_epoch_{epoch}.eqx"),
                 model,

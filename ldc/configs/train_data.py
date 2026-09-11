@@ -4,8 +4,8 @@ import jax.numpy as jnp
 
 class Config:
     model_name = "cvit"
-    train_data_path = "./data/ldc/ldc_training.npz"
-    data_dir = "./data/ldc"
+    train_data_path = "/root/autodl-tmp/data/ldc_training_smooth_fast.npz"
+    data_dir = "./data/ldc" # for evaluation data
     save_dir = "/root/autodl-tmp/tf-logs/ldc/cvit"
     ckpt = None
     lx = 1.0

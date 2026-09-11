@@ -65,7 +65,12 @@ def main():
     configs_raw = load_configs(args.configs)
     configs = apply_overrides(configs_raw, args.set, strict=False)
 
-    save_dir = configs.save_dir + time.strftime("/%Y%m%d-%H%M%S")
+    save_name = getattr(configs, "save_name", None)
+    if save_name is None:
+        save_name = time.strftime("%Y%m%d-%H%M%S")
+    
+    save_dir = configs.save_dir + "/" + save_name
+    print(f"Save directory: {save_dir}")
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
     
@@ -91,6 +96,7 @@ def main():
     # model = get_model(subkey, model_params)
     from models.fno import FNO
     model = FNO(subkey, **model_params)
+    print(model)
 
     ckpt_path = configs.ckpt
     if ckpt_path is not None and os.path.exists(ckpt_path):
@@ -210,11 +216,13 @@ def main():
 
             writer.flush()
 
-        # if epoch % configs.save_every == 0:
-        #     eqx.tree_serialise_leaves(
-        #         os.path.join(save_dir, f"model_epoch_{epoch}.eqx"),
-        #         model,
-        #     )
+        # 稀疏保存 + 兜底保存最后一帧（否则 save_every 不整除总 epoch 时
+        # 训练好的最终模型不会被写出）
+        if epoch % configs.save_every == 0 or epoch == epochs - 1:
+            eqx.tree_serialise_leaves(
+                os.path.join(save_dir, f"model_epoch_{epoch}.eqx"),
+                model,
+            )
     
     writer.close()
                 

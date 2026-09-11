@@ -111,7 +111,12 @@ def main():
     configs_raw = load_configs(args.configs)
     configs = apply_overrides(configs_raw, args.set, strict=False)
 
-    save_dir = configs.save_dir + time.strftime("/%Y%m%d-%H%M%S")
+    save_name = getattr(configs, "save_name", None)
+    if save_name is None:
+        save_name = time.strftime("%Y%m%d-%H%M%S")
+    
+    save_dir = configs.save_dir + "/" + save_name
+    print(f"Save directory: {save_dir}")
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
 
@@ -131,6 +136,7 @@ def main():
 
     subkey, key = jax.random.split(key)
     model = FNO2d(subkey, **configs.model_params)
+    print(model)
 
     ckpt_path = getattr(configs, "ckpt", None)
     if ckpt_path is not None and os.path.exists(ckpt_path):
@@ -241,11 +247,11 @@ def main():
                 writer.add_scalar(f"weight/weight_{active_loss_names[i]}", w.item(), epoch)
             writer.flush()
 
-        # if epoch % configs.save_every == 0:
-        #     eqx.tree_serialise_leaves(
-        #         os.path.join(save_dir, f"model_epoch_{epoch}.eqx"),
-        #         model,
-        #     )
+        if epoch % configs.save_every == 0:
+            eqx.tree_serialise_leaves(
+                os.path.join(save_dir, f"model_epoch_{epoch}.eqx"),
+                model,
+            )
 
     writer.close()
 

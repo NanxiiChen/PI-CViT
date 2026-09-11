@@ -344,6 +344,12 @@ def main():
 
                 writer.flush()
                 
+            if num_train_step % configs.save_every == 0:
+                eqx.tree_serialise_leaves(
+                    os.path.join(save_dir, f"model_epoch_{num_train_step}.eqx"),
+                    model,
+                )
+            
             num_train_step += 1
             
             

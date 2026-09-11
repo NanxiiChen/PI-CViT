@@ -13,6 +13,18 @@ from models.causal import CausalWeightor
 from models.soap import SOAPState, project
 from .configs.train_cvit import Config
 
+# Chunk sizes for the float64 PDE loss: at most PDE_BATCH_CHUNK * PDE_QUERY_CHUNK
+# query pairs per vmapped call. Above ~8k pairs XLA selects float64 GEMM tiles
+# that exceed the per-block shared-memory limit of the GPU
+# (RESOURCE_EXHAUSTED: Shared memory size limit exceeded); 8 * 512 = 4096 pairs
+# is the largest tested-safe size.
+PDE_BATCH_CHUNK = 8
+PDE_QUERY_CHUNK = 512
+
+
+def _use_f64_chunks(cfg) -> bool:
+    return str(getattr(cfg, "precision", "float32")).lower() in ("float64", "double")
+
 
 
 class Losses(eqx.Module):
@@ -51,13 +63,22 @@ class Losses(eqx.Module):
         
         
         enc_out = model.encoder(u) # (N_patches, emb_dim)
-        
+        # in float64, rematerialise the decoder inside the jacrev/hessian
+        # passes below, otherwise the vmapped second-order autodiff graph
+        # does not fit in memory; in float32 keep the plain call
+        if _use_f64_chunks(cfg):
+            decode_fn = jax.checkpoint(
+                lambda enc, xq, tq: model.decoder(enc, xq, tq)
+            )
+        else:
+            decode_fn = model.decoder
+
         def sol_single(xi, ti):
             # N_query = 1
             # out_dim = 2
             # xi: (2,)
             # ti: (1,)
-            sol = model.decoder(enc_out, xi[None, :], ti[None, :]) # 1, 2
+            sol = decode_fn(enc_out, xi[None, :], ti[None, :]) # 1, 2
             return sol[0, :] # 2,
         
         def compute_pde_terms(xi, ti):
@@ -80,9 +101,21 @@ class Losses(eqx.Module):
             
             return sol,  u_t, v_t, nabla_u, nabla_v, laplacian_u, laplacian_v
         
-        sol, u_t, v_t, nabla_u, nabla_v, laplacian_u, laplacian_v = jax.vmap(
-            compute_pde_terms, in_axes=(0,0)
-        )(x, t)
+        # In float64, vmapping over all query points at once lets XLA fuse the
+        # second-order autodiff graph into GEMMs whose tiles exceed the GPU
+        # shared-memory limit; chunking keeps each fused GEMM at a safe size.
+        # Results are identical to the plain vmap, only scheduled in chunks.
+        if _use_f64_chunks(cfg):
+            def _terms_at(xt):
+                return compute_pde_terms(*xt)
+
+            sol, u_t, v_t, nabla_u, nabla_v, laplacian_u, laplacian_v = jax.lax.map(
+                _terms_at, (x, t), batch_size=PDE_QUERY_CHUNK
+            )
+        else:
+            sol, u_t, v_t, nabla_u, nabla_v, laplacian_u, laplacian_v = jax.vmap(
+                compute_pde_terms, in_axes=(0,0)
+            )(x, t)
         # sol: N_query, 2
         # u_t, v_t: N_query,
         # nabla_u, nabla_v: N_query, 2
@@ -119,10 +152,23 @@ class Losses(eqx.Module):
         t: N_query, 1
         """
         
-        residuals = jax.vmap(
-            self.residual_pde,
-            in_axes=(None, 0, None, None, None)
-        )(model, u, x, t, cfg)  # B, N_query
+        def residual_of_u(u_single):
+            return self.residual_pde(model, u_single, x, t, cfg)  # (N_query,)
+
+        # chunk over u as well: the fused GEMM size scales with B * N
+        if _use_f64_chunks(cfg):
+            # `lax.map` evaluates the per-element function in groups of
+            # PDE_BATCH_CHUNK, so each vmapped pass stays at
+            # B_chunk * N_chunk pairs; checkpoint each group so the
+            # parameter-gradient backward keeps only one group's buffers alive
+            residuals = jax.lax.map(
+                jax.checkpoint(residual_of_u), u, batch_size=PDE_BATCH_CHUNK
+            )  # B, N_query
+        else:
+            residuals = jax.vmap(
+                self.residual_pde,
+                in_axes=(None, 0, None, None, None)
+            )(model, u, x, t, cfg)  # B, N_query
         
         if not cfg.use_causality:
             mse_loss = jnp.mean(jnp.square(residuals))

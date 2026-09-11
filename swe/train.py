@@ -76,7 +76,11 @@ def main():
     configs = apply_overrides(configs_raw, args.set, strict=False)
     pprint(vars(configs), sort_dicts=False)
     
-    save_dir = configs.save_dir + time.strftime("/%Y%m%d-%H%M%S")
+    save_name = getattr(configs, "save_name", None)
+    if save_name is None:
+        save_name = time.strftime("%Y%m%d-%H%M%S")
+    
+    save_dir = configs.save_dir + "/" + save_name
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
 
@@ -183,6 +187,24 @@ def main():
         last_weights = jax.device_put(last_weights, replicated_sharding)
     
     epochs = configs.num_epochs
+
+    # finite-u ablation: pre-draw a fixed pool of input functions once;
+    # `u` seen during training is then restricted to this pool, while
+    # collocation coordinates keep being freely resampled. The pool key is
+    # split after model init, so the initial weights are identical to the
+    # free-sampling baseline.
+    num_u_pool = int(getattr(configs, "num_u_pool", 0) or 0)
+    u_pool = None
+    u_batch_size = configs.num_u_samples
+    if num_u_pool > 0:
+        pool_key, key = jax.random.split(key)
+        u_pool = func_sampler.resample(pool_key, num_samples=num_u_pool)  # (num_u_pool, 1, Ny, Nx)
+        u_batch_size = min(configs.num_u_samples, num_u_pool)
+        print(
+            f"Finite input-function pool: {num_u_pool} functions, "
+            f"per-step batch: {u_batch_size} (free u sampling disabled)"
+        )
+
     batch_u = None
     coords = {"pde": None,}
     
@@ -200,8 +222,13 @@ def main():
         if epoch % configs.resample_u_every == 0 or (epoch >= configs.warmup_epochs and epoch % 5 == 0):
             # after warmup, resample `u` more frequently
             subkey, key = jax.random.split(key)
-            batch_u = func_sampler.resample(subkey)
-            
+            if u_pool is not None:
+                # draw the batch from the fixed pool instead of fresh GRFs
+                pool_idx = jax.random.choice(subkey, num_u_pool, (u_batch_size,), replace=False)
+                batch_u = u_pool[pool_idx]
+            else:
+                batch_u = func_sampler.resample(subkey)
+
             if configs.use_multi_gpu:
                 batch_u = jax.device_put(batch_u, data_sharding)
                 
@@ -299,7 +326,7 @@ def main():
 
             writer.flush()
 
-        if epoch % configs.save_every == 0 and configs.save_every > 0:
+        if configs.save_every > 0 and epoch % configs.save_every == 0:
             eqx.tree_serialise_leaves(
                 os.path.join(save_dir, f"model_epoch_{epoch}.eqx"),
                 model,

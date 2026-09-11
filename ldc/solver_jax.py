@@ -4,8 +4,16 @@ Lid-Driven Cavity Flow Solver (2D, Incompressible) — Pure JAX / GPU Implementa
 
 Numerical methods:
 - Streamfunction–vorticity formulation
-- ADI scheme for vorticity transport  (implicit diffusion + explicit upwind convection)
-- Red–Black SOR for streamfunction Poisson equation
+- ADI scheme for vorticity transport (implicit diffusion + explicit upwind convection;
+  the constant-coefficient tridiagonal solves are done via a precomputed inverse)
+- Red–Black SOR for the streamfunction Poisson equation (fixed sweep count)
+
+Performance design:
+  • the whole outer iteration is fused into ONE jitted function — no per-call
+    kernel dispatch overhead inside the loop
+  • outer iterations run in lax.fori_loop blocks inside a single XLA computation,
+    with host-side convergence checks only between blocks
+  • all static masks / matrices are precomputed once at initialisation
 
 All hot-path computations are:
   • expressed as pure JAX array operations (no Python loops in the inner solver)
@@ -21,8 +29,11 @@ Usage
     python lid_driven_cavity_jax.py            # default Re=100, N=101
     python lid_driven_cavity_jax.py --Re 400 --N 129 --maxiter 80000
 
+    JAX_ENABLE_X64=0 python lid_driven_cavity_jax.py   # float32 (faster, lower accuracy)
+    python lid_driven_cavity_jax.py --float32          # same as above
+
 Requirements
-------------
+-----------
     pip install jax[cuda12]   # for GPU  (or jax[cpu] for CPU-only)
     pip install matplotlib
 """
@@ -30,6 +41,7 @@ Requirements
 from __future__ import annotations
 
 import argparse
+import os
 import time
 from functools import partial
 from typing import NamedTuple
@@ -41,14 +53,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # ---------------------------------------------------------------------------
-# Optional: force 64-bit floats (better accuracy, ~2× slower on some GPUs)
-# Comment out to use float32 (faster, enough for Re < 1000 on coarse grids)
+# Float precision: float64 by default (original numerics — the smooth lid's
+# sharp corner profile stalls at ~1e-2 in float32 on coarse grids).
+# On this workload the kernels are latency-bound, so x64 costs only ~15%.
+# Set JAX_ENABLE_X64=0 (or pass --float32) to opt into float32.
 # ---------------------------------------------------------------------------
-jax.config.update("jax_enable_x64", True)
+jax.config.update("jax_enable_x64", os.environ.get("JAX_ENABLE_X64", "1") == "1")
 
 print(f"JAX version : {jax.__version__}")
 print(f"Backend     : {jax.default_backend()}")
 print(f"Devices     : {jax.devices()}")
+print(f"JAX x64     : {jax.config.x64_enabled}")
 
 
 # ===========================================================================
@@ -64,69 +79,21 @@ class CavityState(NamedTuple):
 
 
 # ===========================================================================
-# Thomas Algorithm (TDMA) — vectorised over M independent systems
-# ===========================================================================
-
-def tdma_batch(a: jnp.ndarray,
-               b: jnp.ndarray,
-               c: jnp.ndarray,
-               d: jnp.ndarray) -> jnp.ndarray:
-    """
-    Solve M independent tridiagonal systems simultaneously via lax.scan.
-
-    Parameters
-    ----------
-    a, b, c : (M, K)  lower / main / upper diagonals  (a[*, 0] is unused)
-    d       : (M, K)  right-hand sides
-
-    Returns
-    -------
-    x : (M, K)  solutions
-    """
-    M, K = d.shape
-
-    # ---- Forward sweep ----
-    def fwd_step(carry, k):
-        p_prev, q_prev = carry                    # (M,)
-        denom   = b[:, k] - a[:, k] * p_prev
-        p_k     = c[:, k] / denom
-        q_k     = (d[:, k] - a[:, k] * q_prev) / denom
-        return (p_k, q_k), (p_k, q_k)
-
-    p0 = c[:, 0] / b[:, 0]
-    q0 = d[:, 0] / b[:, 0]
-    _, (P, Q) = jax.lax.scan(fwd_step, (p0, q0), jnp.arange(1, K))
-    # P, Q shape: (K-1, M) — prepend the k=0 values
-    P = jnp.concatenate([p0[None, :], P], axis=0).T  # (M, K)
-    Q = jnp.concatenate([q0[None, :], Q], axis=0).T  # (M, K)
-
-    # ---- Backward substitution ----
-    def bwd_step(x_next, k):
-        x_k = Q[:, k] - P[:, k] * x_next
-        return x_k, x_k
-
-    x_last = Q[:, -1]
-    _, X_rev = jax.lax.scan(bwd_step, x_last, jnp.arange(K - 2, -1, -1))
-    # X_rev: (K-1, M)
-    X = jnp.concatenate([X_rev[::-1], x_last[None, :]], axis=0).T  # (M, K)
-    return X
-
-
-# ===========================================================================
 # Boundary conditions
 # ===========================================================================
 
-@partial(jax.jit, static_argnums=(2, 3))
 def apply_bcs(psi: jnp.ndarray,
               omega: jnp.ndarray,
               h: float,
-              U: float) -> jnp.ndarray:
+              lid_u: jnp.ndarray) -> jnp.ndarray:
     """
     Apply Thom's formula vorticity BCs; return updated omega.
     psi boundaries are already zero and stay zero — no update needed.
+    Top lid velocity follows the smooth profile
+    lid_u(x) = U * (1 - cosh(50(x - 0.5)) / cosh(25))  → 0 at corners.
     """
-    # Top wall (moving lid)
-    omega_top    = -2.0 * psi[-2, 1:-1] / h**2 - 2.0 * U / h
+    # Top wall (moving lid, smooth profile)
+    omega_top    = -2.0 * psi[-2, 1:-1] / h**2 - 2.0 * lid_u[1:-1] / h
     # Bottom wall
     omega_bot    = -2.0 * psi[ 1, 1:-1] / h**2
     # Left wall
@@ -152,8 +119,7 @@ def apply_bcs(psi: jnp.ndarray,
 # Velocity calculation
 # ===========================================================================
 
-@partial(jax.jit, static_argnums=(1, 2))
-def calculate_velocities(psi: jnp.ndarray, h: float, U: float):
+def calculate_velocities(psi: jnp.ndarray, h: float, lid_u: jnp.ndarray):
     """Central-difference velocities; apply wall BCs."""
     N = psi.shape[0]
 
@@ -164,85 +130,71 @@ def calculate_velocities(psi: jnp.ndarray, h: float, U: float):
     u = u.at[1:-1, 1:-1].set((psi[2:, 1:-1] - psi[:-2, 1:-1]) / (2 * h))
     v = v.at[1:-1, 1:-1].set(-(psi[1:-1, 2:] - psi[1:-1, :-2]) / (2 * h))
 
-    # Top lid moves at U
-    u = u.at[-1, :].set(U)
+    # Top lid moves with smooth profile lid_u(x)  (zero at corners)
+    u = u.at[-1, :].set(lid_u)
 
     return u, v
 
 
 # ===========================================================================
-# Red-Black SOR — fully vectorised
+# Red-Black SOR — fixed sweep count, fully vectorised
 # ===========================================================================
 
-@partial(jax.jit, static_argnums=(2, 3, 4))
-def sor_sweep(psi: jnp.ndarray,
-              omega: jnp.ndarray,
-              h: float,
-              omega_relax: float,
-              N: int) -> jnp.ndarray:
-    """One full red-black SOR iteration."""
+def _gs_pass(psi: jnp.ndarray,
+             source: jnp.ndarray,
+             mask: jnp.ndarray,
+             omega_relax: float) -> jnp.ndarray:
+    neighbor_sum = (jnp.roll(psi,  1, 0) + jnp.roll(psi, -1, 0) +
+                    jnp.roll(psi,  1, 1) + jnp.roll(psi, -1, 1))
+    psi_gs  = 0.25 * (neighbor_sum + source)
+    return jnp.where(mask, (1 - omega_relax) * psi + omega_relax * psi_gs, psi)
+
+
+def sor_sweeps(psi: jnp.ndarray,
+               omega: jnp.ndarray,
+               h: float,
+               omega_relax: float,
+               n_sor: int,
+               red_mask: jnp.ndarray,
+               black_mask: jnp.ndarray) -> jnp.ndarray:
+    """
+    n_sor red-black SOR sweeps (fixed count — no host syncs per sweep).
+    psi starts from the previous outer iteration, so a handful of sweeps
+    is enough to keep the Poisson residual small.
+    """
     source = h**2 * omega
 
-    i_idx, j_idx = jnp.meshgrid(jnp.arange(N), jnp.arange(N), indexing='ij')
-    interior = (i_idx > 0) & (i_idx < N - 1) & (j_idx > 0) & (j_idx < N - 1)
-    red_mask   = interior & ((i_idx + j_idx) % 2 == 0)
-    black_mask = interior & ((i_idx + j_idx) % 2 == 1)
+    def sweep(_i, psi_in):
+        psi_in = _gs_pass(psi_in, source, red_mask,   omega_relax)
+        psi_in = _gs_pass(psi_in, source, black_mask, omega_relax)
+        return psi_in
 
-    def gs_update(psi_in, mask):
-        neighbor_sum = (jnp.roll(psi_in,  1, 0) + jnp.roll(psi_in, -1, 0) +
-                        jnp.roll(psi_in,  1, 1) + jnp.roll(psi_in, -1, 1))
-        psi_gs  = 0.25 * (neighbor_sum + source)
-        psi_new = jnp.where(mask, (1 - omega_relax) * psi_in + omega_relax * psi_gs, psi_in)
-        return psi_new
-
-    psi = gs_update(psi, red_mask)
-    psi = gs_update(psi, black_mask)
-    return psi
-
-
-@partial(jax.jit, static_argnums=(2, 3, 4, 5))
-def solve_streamfunction(psi: jnp.ndarray,
-                         omega: jnp.ndarray,
-                         h: float,
-                         omega_relax: float = 1.8,
-                         max_sor_iter: int = 1000,
-                         tol: float = 1e-4) -> jnp.ndarray:
-    """Run SOR until convergence or max_sor_iter sweeps."""
-    N = psi.shape[0]
-
-    def cond(carry):
-        psi_in, iteration, max_change = carry
-        return (max_change >= tol) & (iteration < max_sor_iter)
-
-    def body(carry):
-        psi_in, iteration, _ = carry
-        psi_new    = sor_sweep(psi_in, omega, h, omega_relax, N)
-        max_change = jnp.max(jnp.abs(psi_new - psi_in))
-        return psi_new, iteration + 1, max_change
-
-    psi_out, _, _ = jax.lax.while_loop(cond, body, (psi, 0, jnp.inf))
-    return psi_out
+    return jax.lax.fori_loop(0, n_sor, sweep, psi)
 
 
 # ===========================================================================
 # ADI vorticity transport
 # ===========================================================================
 
-@partial(jax.jit, static_argnums=(3, 4, 5))
-def solve_vorticity_adi(omega: jnp.ndarray,
-                        u_c: jnp.ndarray,
-                        v_c: jnp.ndarray,
-                        nu: float,
-                        h: float,
-                        dt: float) -> jnp.ndarray:
+def adi_transport(omega: jnp.ndarray,
+                  u_c: jnp.ndarray,
+                  v_c: jnp.ndarray,
+                  A_inv: jnp.ndarray,
+                  nu: float,
+                  h: float,
+                  dt: float) -> jnp.ndarray:
     """
     One ADI time step for the vorticity transport equation.
 
     Step 1 : implicit in x (rows),  explicit in y + convection
     Step 2 : implicit in y (cols),  explicit in x* + convection
+
+    The implicit diffusion matrix is the same constant-coefficient
+    tridiagonal system for every row / column, so both linear solves
+    reduce to two dense matmuls with the precomputed inverse A_inv
+    (no sequential Thomas sweep on the device).
     """
-    N   = omega.shape[0]
-    M   = N - 2          # number of interior rows / cols
+    M     = omega.shape[0] - 2
     alpha = (nu * dt) / (2.0 * h**2)
 
     # ------------------------------------------------------------------
@@ -266,25 +218,12 @@ def solve_vorticity_adi(omega: jnp.ndarray,
     diff_y = (nu / h**2) * (omega[2:, 1:-1] + omega[:-2, 1:-1] - 2.0 * ow)
 
     # ------------------------------------------------------------------
-    # Step 1 : implicit in x → solve M tridiagonal systems of size M
-    #          each system corresponds to one row i
+    # Step 1 : implicit in x → each row i solves  A x_i = RHS1[i, :]
     # ------------------------------------------------------------------
-    # RHS[i, j] = omega[i,j] + dt*(diff_y - conv)
     RHS1 = ow + dt * (diff_y - conv)            # (M, M)
-
-    # Build tridiagonal (constant coefficients across all rows)
-    a1 = jnp.full((M, M), -alpha)
-    b1 = jnp.full((M, M),  1.0 + 2.0 * alpha)
-    c1 = jnp.full((M, M), -alpha)
-    # Zero out sub/super diag at boundaries (they don't exist there)
-    a1 = a1.at[:, 0].set(0.0)
-    c1 = c1.at[:, -1].set(0.0)
-
-    # Incorporate wall BCs into RHS
     RHS1 = RHS1.at[:, 0 ].add(alpha * omega[1:-1,  0])
     RHS1 = RHS1.at[:, -1].add(alpha * omega[1:-1, -1])
-
-    omega_star_interior = tdma_batch(a1, b1, c1, RHS1)   # (M, M)
+    omega_star_interior = RHS1 @ A_inv          # (M, M), A is symmetric
 
     # Assemble full omega_star (boundaries from current omega)
     omega_star = omega.at[1:-1, 1:-1].set(omega_star_interior)
@@ -295,31 +234,85 @@ def solve_vorticity_adi(omega: jnp.ndarray,
     ow_s   = omega_star[1:-1, 1:-1]
     diff_x = (nu / h**2) * (omega_star[1:-1, 2:] + omega_star[1:-1, :-2] - 2.0 * ow_s)
 
-    # RHS Step 2: omega_star + dt*(diff_x* - conv_n)
+    # ------------------------------------------------------------------
+    # Step 2 : implicit in y → each column j solves  A y_j = RHS2[:, j]
+    # ------------------------------------------------------------------
     RHS2 = ow_s + dt * (diff_x - conv)          # (M, M)
+    RHS2 = RHS2.at[ 0, :].add(alpha * omega_star[ 0, 1:-1])
+    RHS2 = RHS2.at[-1, :].add(alpha * omega_star[-1, 1:-1])
+    omega_new_interior = A_inv @ RHS2           # (M, M)
 
-    # ------------------------------------------------------------------
-    # Step 2 : implicit in y → solve M tridiagonal systems of size M
-    #          each system corresponds to one column j
-    #          transpose so that each "row" in the batch = one column
-    # ------------------------------------------------------------------
-    RHS2_T = RHS2.T   # (M, M)  — now row index = column index j
+    return omega.at[1:-1, 1:-1].set(omega_new_interior)
 
-    a2 = jnp.full((M, M), -alpha)
-    b2 = jnp.full((M, M),  1.0 + 2.0 * alpha)
-    c2 = jnp.full((M, M), -alpha)
-    a2 = a2.at[:, 0].set(0.0)
-    c2 = c2.at[:, -1].set(0.0)
 
-    # Incorporate wall BCs
-    RHS2_T = RHS2_T.at[:, 0 ].add(alpha * omega_star[ 0, 1:-1])
-    RHS2_T = RHS2_T.at[:, -1].add(alpha * omega_star[-1, 1:-1])
+# ===========================================================================
+# Fused outer step + block-scan runner
+# ===========================================================================
 
-    omega_new_interior_T = tdma_batch(a2, b2, c2, RHS2_T)  # (M, M)
-    omega_new_interior   = omega_new_interior_T.T            # (M, M)
+def step_impl(state: CavityState,
+              lid_u: jnp.ndarray,
+              red_mask: jnp.ndarray,
+              black_mask: jnp.ndarray,
+              A_inv: jnp.ndarray,
+              h: float,
+              nu: float,
+              dt: float,
+              n_sor: int,
+              omega_relax: float) -> tuple[CavityState, jnp.ndarray]:
+    """
+    One full outer iteration (plain function — fused into run_block by XLA).
+    """
+    psi, omega, u, v = state
 
-    omega_new = omega.at[1:-1, 1:-1].set(omega_new_interior)
-    return omega_new
+    # 1. Velocities
+    u, v = calculate_velocities(psi, h, lid_u)
+
+    # 2. BCs
+    omega = apply_bcs(psi, omega, h, lid_u)
+
+    # 3. Vorticity transport (ADI)
+    u_c = u[1:-1, 1:-1]
+    v_c = v[1:-1, 1:-1]
+    omega_new = adi_transport(omega, u_c, v_c, A_inv, nu, h, dt)
+
+    # 4. BCs on new omega
+    omega_new = apply_bcs(psi, omega_new, h, lid_u)
+
+    # 5. Streamfunction (fixed number of SOR sweeps)
+    psi_new = sor_sweeps(psi, omega_new, h, omega_relax, n_sor,
+                         red_mask, black_mask)
+
+    # Convergence metric
+    max_change = jnp.max(jnp.abs(omega_new[1:-1, 1:-1] - omega[1:-1, 1:-1]))
+
+    new_state = CavityState(psi=psi_new, omega=omega_new, u=u, v=v)
+    return new_state, max_change
+
+
+@partial(jax.jit, static_argnums=(10,))
+def run_block(state: CavityState,
+              lid_u: jnp.ndarray,
+              red_mask: jnp.ndarray,
+              black_mask: jnp.ndarray,
+              A_inv: jnp.ndarray,
+              h: float,
+              nu: float,
+              dt: float,
+              n_sor: int,
+              omega_relax: float,
+              block_len: int) -> tuple[CavityState, jnp.ndarray]:
+    """
+    Run block_len fused outer iterations inside a single XLA computation
+    (lax.fori_loop — no host syncs, no per-iteration dispatch).
+    Returns the new state and the max Δω over the whole block.
+    """
+    def body(_i, carry):
+        st, mx = carry
+        new_st, chg = step_impl(st, lid_u, red_mask, black_mask, A_inv,
+                                h, nu, dt, n_sor, omega_relax)
+        return new_st, jnp.maximum(mx, chg)
+
+    return jax.lax.fori_loop(0, block_len, body, (state, 0.0))
 
 
 # ===========================================================================
@@ -374,25 +367,62 @@ class LidDrivenCavitySolverJAX:
     """
 
     def __init__(self, N: int = 101, Re: float = 100.0,
-                 lid_velocity: float = 1.0, L: float = 1.0):
+                 lid_velocity: float = 1.0, L: float = 1.0,
+                 smooth_lid: bool = True, n_sor: int = 10,
+                 omega_relax: float = 1.8):
         self.N   = N
         self.Re  = Re
         self.U   = float(lid_velocity)
         self.L   = float(L)
         self.h   = L / (N - 1)
         self.nu  = self.U * self.L / Re
+        self.smooth_lid  = smooth_lid
+        self.n_sor       = n_sor
+        self.omega_relax = omega_relax
 
         # Time step (CFL-based)
-        self.dt  = 0.1 * self.h / self.U
+        self.dt = 0.1 * self.h / self.U
 
         print(f"[INFO] N={N}, Re={Re}, h={self.h:.4e}, dt={self.dt:.4e}, "
-              f"nu={self.nu:.4e}")
+              f"nu={self.nu:.4e}, n_sor={n_sor}")
 
         # Grid (host-side for plotting)
         x = np.linspace(0, L, N)
         y = np.linspace(0, L, N)
         self.x_np, self.y_np = x, y
         self.X_np, self.Y_np = np.meshgrid(x, y, indexing='xy')
+
+        # Lid velocity profile:
+        #   smooth: v1(x, 1) = U * (1 - cosh(50(x - 0.5)) / cosh(25))  (0 at corners)
+        #   const : v1(x, 1) = U  (discontinuous at top corners)
+        if smooth_lid:
+            self.lid_u = jnp.asarray(
+                self.U * (1.0 - np.cosh(50.0 * (x / L - 0.5)) / np.cosh(25.0))
+            )
+            print("[INFO] Lid BC: smooth profile "
+                  "U·(1 - cosh(50(x-0.5))/cosh(25))")
+        else:
+            self.lid_u = jnp.full((N,), self.U)
+            print("[INFO] Lid BC: constant U (discontinuous at corners)")
+
+        # Static red-black masks (depend only on N — computed once)
+        i_idx, j_idx = jnp.meshgrid(jnp.arange(N), jnp.arange(N), indexing='ij')
+        interior = (i_idx > 0) & (i_idx < N - 1) & (j_idx > 0) & (j_idx < N - 1)
+        self.red_mask   = interior & ((i_idx + j_idx) % 2 == 0)
+        self.black_mask = interior & ((i_idx + j_idx) % 2 == 1)
+
+        # Precomputed inverse of the constant-coefficient ADI tridiagonal
+        # system (same matrix for every row / column of the interior)
+        M     = N - 2
+        alpha = self.nu * self.dt / (2.0 * self.h**2)
+        a = np.full(M, -alpha)
+        b = np.full(M,  1.0 + 2.0 * alpha)
+        c = np.full(M, -alpha)
+        a[0] = 0.0
+        c[-1] = 0.0
+        A = np.diag(a[1:], -1) + np.diag(b, 0) + np.diag(c[:-1], 1)
+        A_inv = np.linalg.inv(A)
+        self.A_inv = jnp.asarray(A_inv).astype(jnp.zeros((1,)).dtype)
 
         # Device-side state
         self.state = CavityState(
@@ -407,74 +437,51 @@ class LidDrivenCavitySolverJAX:
         self.history: dict[str, list] = {'iterations': [], 'max_change': [], 'psi_min': []}
 
     # ------------------------------------------------------------------
-    # One full outer iteration
+    # Full solve loop (outer iterations in fused JIT blocks)
     # ------------------------------------------------------------------
 
-    def _step(self, state: CavityState) -> tuple[CavityState, float]:
-        psi, omega, u, v = state
-
-        # 1. Velocities
-        u, v = calculate_velocities(psi, self.h, self.U)
-
-        # 2. BCs
-        omega = apply_bcs(psi, omega, self.h, self.U)
-
-        # 3. Vorticity transport (ADI)
-        u_c = u[1:-1, 1:-1]
-        v_c = v[1:-1, 1:-1]
-        omega_new = solve_vorticity_adi(omega, u_c, v_c, self.nu, self.h, self.dt)
-
-        # 4. BCs on new omega
-        omega_new = apply_bcs(psi, omega_new, self.h, self.U)
-
-        # 5. Streamfunction (SOR)
-        psi_new = solve_streamfunction(psi, omega_new, self.h)
-
-        # Convergence metric
-        max_change = jnp.max(jnp.abs(omega_new[1:-1, 1:-1] - omega[1:-1, 1:-1]))
-
-        new_state = CavityState(psi=psi_new, omega=omega_new, u=u, v=v)
-        return new_state, max_change
-
-    # ------------------------------------------------------------------
-    # Full solve loop
-    # ------------------------------------------------------------------
-
-    def solve(self, max_iterations: int = 50000, tolerance: float = 1e-6):
+    def solve(self, max_iterations: int = 50000, tolerance: float = 1e-6,
+              block_len: int = 5000):
         print(f"\n{'='*60}")
         print(f"LID-DRIVEN CAVITY  —  JAX / GPU")
         print(f"{'='*60}")
         print(f"Grid {self.N}×{self.N}   Re={self.Re}   "
-              f"dt={self.dt:.2e}   tol={tolerance:.1e}")
+              f"dt={self.dt:.2e}   tol={tolerance:.1e}   "
+              f"block={block_len}   n_sor={self.n_sor}")
         print(f"{'='*60}")
+
+        args = (self.lid_u, self.red_mask, self.black_mask, self.A_inv,
+                self.h, self.nu, self.dt, self.n_sor, self.omega_relax)
 
         # Warm up JIT (first call compiles — excluded from timing)
         print("[INFO] Warming up JIT compilation …")
-        _ = self._step(self.state)
+        _ = run_block(self.state, *args, block_len)
         jax.block_until_ready(_[0].psi)
         print("[INFO] Compilation done.\n")
 
         state      = self.state
         converged  = False
+        it         = 0
         t0         = time.perf_counter()
 
-        for it in range(max_iterations):
-            state, max_change = self._step(state)
+        while it < max_iterations:
+            nb = min(block_len, max_iterations - it)
+            state, block_max = run_block(state, *args, nb)
+            it += nb
 
-            # Pull scalar to host only every 5000 iters (avoid transfer overhead)
-            if it % 5000 == 0 or it < 10:
-                chg_val = float(max_change)
-                psi_min = float(jnp.min(state.psi))
-                self.history['iterations'].append(it)
-                self.history['max_change'].append(chg_val)
-                self.history['psi_min'].append(psi_min)
-                elapsed = time.perf_counter() - t0
-                print(f"  iter {it:6d}  Δω_max={chg_val:.3e}  "
-                      f"ψ_min={psi_min:.6f}  t={elapsed:.1f}s")
+            # Pull scalar to host only once per block (amortised overhead)
+            chg_val = float(block_max)
+            psi_min = float(jnp.min(state.psi))
+            self.history['iterations'].append(it)
+            self.history['max_change'].append(chg_val)
+            self.history['psi_min'].append(psi_min)
+            elapsed = time.perf_counter() - t0
+            print(f"  iter {it:6d}  Δω_max={chg_val:.3e}  "
+                  f"ψ_min={psi_min:.6f}  t={elapsed:.1f}s")
 
-                if chg_val < tolerance and it > 1000:
-                    converged = True
-                    break
+            if chg_val < tolerance and it > 1000:
+                converged = True
+                break
 
         elapsed = time.perf_counter() - t0
         jax.block_until_ready(state.psi)
@@ -486,7 +493,7 @@ class LidDrivenCavitySolverJAX:
             print(f"\n[WARNING] Max iterations reached ({elapsed:.2f}s)")
 
         # Final velocity + pressure
-        u, v = calculate_velocities(state.psi, self.h, self.U)
+        u, v = calculate_velocities(state.psi, self.h, self.lid_u)
         self.state = CavityState(psi=state.psi, omega=state.omega, u=u, v=v)
         self.p     = calculate_pressure((u, v), self.h)
 
@@ -508,7 +515,11 @@ class LidDrivenCavitySolverJAX:
         print("SOLUTION SUMMARY")
         print(f"{'='*60}")
         print(f"Grid : {self.N}×{self.N}   Re = {self.Re}")
-        print(f"Lid  : U = {self.U}  (top wall, y = {self.L})")
+        if self.smooth_lid:
+            print(f"Lid  : smooth profile U·(1 - cosh(50(x-0.5))/cosh(25)), "
+                  f"U = {self.U}  (top wall, y = {self.L})")
+        else:
+            print(f"Lid  : constant U = {self.U}  (top wall, y = {self.L})")
         print(f"ψ    : min = {float(jnp.min(self.state.psi)):.6f}")
         print(f"ω    : min = {float(jnp.min(self.state.omega)):.3f}, "
               f"max = {float(jnp.max(self.state.omega)):.3f}")
@@ -646,9 +657,9 @@ class LidDrivenCavitySolverJAX:
             print(f"[SUCCESS] Saved: {fname}")
         plt.show()
 
-    def save_arrays(self, save_dir='.'):
+    def save_arrays(self, save_id, save_dir='.'):
         """Save solution fields as compressed NumPy archive."""
-        fname = f'{save_dir}/flow_fields_jax_Re{int(self.Re)}_N{self.N}.npz'
+        fname = f'{save_dir}/flow_fields_jax_N{self.N}_{save_id}.npz'
         np.savez_compressed(
             fname,
             x     = self.x_np,
@@ -658,6 +669,7 @@ class LidDrivenCavitySolverJAX:
             u     = np.array(self.state.u),
             v     = np.array(self.state.v),
             p     = np.array(self.p),
+            re    = self.Re
         )
         print(f"[SUCCESS] Arrays saved: {fname}")
 
@@ -668,11 +680,17 @@ class LidDrivenCavitySolverJAX:
 
 def parse_args():
     p = argparse.ArgumentParser(description='JAX Lid-Driven Cavity Solver')
-    p.add_argument('--N',       type=int,   default=101,   help='Grid size NxN')
+    p.add_argument('--N',       type=int,   default=256,   help='Grid size NxN')
     p.add_argument('--Re',      type=float, default=100.0, help='Reynolds number')
-    p.add_argument('--maxiter', type=int,   default=50000, help='Max outer iterations')
+    p.add_argument('--maxiter', type=int,   default=100000, help='Max outer iterations')
     p.add_argument('--tol',     type=float, default=1e-6,  help='Convergence tolerance')
     p.add_argument('--U',       type=float, default=1.0,   help='Lid velocity')
+    p.add_argument('--n-sor',   type=int,   default=20,    help='SOR sweeps per outer iteration')
+    p.add_argument('--block-len', type=int, default=5000,  help='Fused iterations per JIT block')
+    p.add_argument('--float32', action='store_true',
+                   help='Use float32 (faster; smooth-lid corners may stall ~1e-2)')
+    p.add_argument('--no-smooth-lid', action='store_true',
+                   help='Use constant lid velocity (discontinuous at corners)')
     p.add_argument('--no-save-figure', action='store_true',        help='Skip saving figures')
     p.add_argument('--save-dir', type=str,   default='./results', help='Directory to save arrays')
     return p.parse_args()
@@ -680,15 +698,23 @@ def parse_args():
 
 if __name__ == '__main__':
     args = parse_args()
+
+    if args.float32:
+        jax.config.update("jax_enable_x64", False)
+        print(f"JAX x64     : {jax.config.x64_enabled}")
     
     
     Re_range = [50, 1000]
     Re_range_log = [np.log(Re_range[0]), np.log(Re_range[1])]
-    # uniformly sample 256 Re values in log space
-    np.random.seed(42)
-    Re_values_log = np.random.uniform(Re_range_log[0], Re_range_log[1], 256,)
-    Re_values = np.int64(np.exp(Re_values_log))
+    # uniformly sample 100 Re values in log space
+    np.random.seed(23)
+    Re_values_log = np.random.uniform(Re_range_log[0], Re_range_log[1], 100,)
+    Re_values = np.exp(Re_values_log)
     print(f"Randomly sampled Re values (log-uniform): {Re_values}")
+    np.save(f'{args.save_dir}/Re_values.npy', Re_values)
+    
+    # Re_values = np.array([50, 100, 200, 500, 1000])
+    # np.save(f'{args.save_dir}/Re_values.npy', Re_values)
     
     for idx, Re in enumerate(Re_values):
         print(f"Num {idx} of {len(Re_values)}: Re = {Re}")
@@ -696,12 +722,17 @@ if __name__ == '__main__':
             N            = args.N,
             Re           = Re,
             lid_velocity = args.U,
+            smooth_lid   = not args.no_smooth_lid,
+            n_sor        = args.n_sor,
         )
 
         converged, iters = solver.solve(
             max_iterations = args.maxiter,
             tolerance      = args.tol,
+            block_len      = args.block_len,
         )
 
         solver.print_summary()
-        solver.save_arrays(save_dir=args.save_dir)
+        # solver.create_plots(save_fig=not args.no_save_figure)
+        # solver.create_showcase_plots(save_fig=not args.no_save_figure)
+        solver.save_arrays(save_id=idx, save_dir=args.save_dir)

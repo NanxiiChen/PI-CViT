@@ -184,52 +184,86 @@ def generate_periodic_ic_jax(key, Nx, Ny, length_scale=0.1, amplitude=0.01, Lx=1
 
 
 def generate_periodic_ics_batch_jax(keys, Nx, Ny, length_scale=0.1, amplitude=0.01, Lx=1.0, Ly=1.0):
-    sampler = lambda k: generate_periodic_ic_jax(
+    """length_scale 可以是标量（所有样本共用）或 (N,) 数组（逐样本）。"""
+    sampler = lambda k, ls: generate_periodic_ic_jax(
         k, Nx, Ny,
-        length_scale=length_scale,
+        length_scale=ls,
         amplitude=amplitude,
         Lx=Lx,
         Ly=Ly,
     )
-    return jax.vmap(sampler)(keys)
+    length_scales = jnp.broadcast_to(jnp.asarray(length_scale), (keys.shape[0],))
+    return jax.vmap(sampler, in_axes=(0, 0))(keys, length_scales)
 
 
 if __name__ == "__main__":
-    N_samples = 100
+    import argparse
+
+    parser = argparse.ArgumentParser(description="2D Vector Burgers Equation Solver (JAX all-jnp pipeline)")
+    parser.add_argument("--n_samples", type=int, default=100)
+    parser.add_argument("--seed", type=int, default=543)
+    parser.add_argument("--save_path", type=str, default="./data/burgers/burgers_solutions.npz")
+    parser.add_argument("--ls_min", type=float, default=0.1,
+                        help="每个样本 GRF length_scale 的下限；与 --ls_max 相等时固定为该值（旧行为）")
+    parser.add_argument("--ls_max", type=float, default=0.1,
+                        help="每个样本 GRF length_scale 的上限")
+    args = parser.parse_args()
+
+    N_samples = args.n_samples
     Nx, Ny = 64, 64
     nu = 0.01
     t_end = 1.0
     dt = 0.001
     save_interval = 0.1
+    amplitude = 0.2
 
-    ic_params = {
-        "length_scale": 0.1,
-        "amplitude": 0.2,
-        "seed": 543,
-    }
+    if args.ls_min == args.ls_max:
+        randomize_length_scale = False
+    elif 0.0 < args.ls_min < args.ls_max:
+        randomize_length_scale = True
+    else:
+        parser.error("--ls_min/--ls_max 需满足 0 < ls_min < ls_max，或两者相等（固定模式）")
 
     print("=" * 60)
     print("2D Vector Burgers Equation Solver (JAX all-jnp pipeline)")
     print(f"Grid: {Nx}x{Ny}, Samples: {N_samples}")
     print(f"nu = {nu}")
+    if randomize_length_scale:
+        # 场的粗糙度与 length_scale 成精确倒数关系（RMS 梯度 = sqrt(2)/ls），
+        # 因此在粗糙度空间均匀采样 r = 1/ls ~ U[1/ls_max, 1/ls_min]，使固定值
+        # ls=0.1 在所选范围内恰为粗糙度中点（如 ls in [1/15, 1/5] 时 r in [5, 15]）。
+        print(f"length_scale: random per sample, ls in [{args.ls_min:.6g}, {args.ls_max:.6g}]"
+              f" (roughness 1/ls in [{1.0 / args.ls_max:.4g}, {1.0 / args.ls_min:.4g}])")
+    else:
+        print(f"length_scale: fixed = {args.ls_min}")
+    print(f"Save path: {args.save_path}")
     print("=" * 60)
 
     print("\nGenerating Initial Conditions with JAX PRNG...")
-    key = jax.random.PRNGKey(ic_params["seed"])
-    # 每个样本的 u、v 分量各需要一个独立的 key
+    key = jax.random.PRNGKey(args.seed)
+    if randomize_length_scale:
+        key, ls_key = jax.random.split(key)
+        length_scales = 1.0 / jax.random.uniform(
+            ls_key, (N_samples,),
+            minval=1.0 / args.ls_max,
+            maxval=1.0 / args.ls_min,
+        )
+    else:
+        length_scales = jnp.full((N_samples,), args.ls_min, dtype=jnp.float32)
+    # 每个样本的 u、v 分量各需要一个独立的 key，但共享同一个 length_scale
     keys = jax.random.split(key, 2 * N_samples)
     keys_u = keys[:N_samples]
     keys_v = keys[N_samples:]
 
     u0_all = generate_periodic_ics_batch_jax(
         keys_u, Nx, Ny,
-        length_scale=ic_params["length_scale"],
-        amplitude=ic_params["amplitude"],
+        length_scale=length_scales,
+        amplitude=amplitude,
     )
     v0_all = generate_periodic_ics_batch_jax(
         keys_v, Nx, Ny,
-        length_scale=ic_params["length_scale"],
-        amplitude=ic_params["amplitude"],
+        length_scale=length_scales,
+        amplitude=amplitude,
     )
     initial_conditions = jnp.stack([u0_all, v0_all], axis=1)  # (N, 2, Nx, Ny)
     print(f"Initial conditions shape: {initial_conditions.shape}")
@@ -254,9 +288,17 @@ if __name__ == "__main__":
     print(f"\nDiagnostics (sample 0): KE[0]={float(ke[0]):.4f}, KE[-1]={float(ke[-1]):.4f}, "
           f"change={float(ke[-1] - ke[0]):.4e}")
 
+    if randomize_length_scale:
+        print(f"\nlength_scale stats: min={float(jnp.min(length_scales)):.4f}, "
+              f"max={float(jnp.max(length_scales)):.4f}, "
+              f"median={float(jnp.median(length_scales)):.4f}, "
+              f"mean={float(jnp.mean(length_scales)):.4f}")
+
     print("\nSaving Results...")
-    os.makedirs("./data/burgers", exist_ok=True)
-    save_path = "./data/burgers/burgers_solutions.npz"
+    save_dir = os.path.dirname(args.save_path)
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+    save_path = args.save_path
 
     x = jnp.linspace(0.0, 1.0, Nx, endpoint=False, dtype=jnp.float32)
     y = jnp.linspace(0.0, 1.0, Ny, endpoint=False, dtype=jnp.float32)
@@ -269,6 +311,9 @@ if __name__ == "__main__":
         y=y,
         nu=nu,
         dt=dt,
+        length_scale=length_scales,
+        amplitude=amplitude,
+        seed=args.seed,
     )
     print(f"Saved to {save_path}")
 

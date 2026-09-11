@@ -11,7 +11,9 @@ from models.fno import FNO
 def _fft_k(n: int, length, dtype=jnp.float32):
     if n <= 1:
         raise ValueError(f"n must be > 1, got {n}")
-    return (2.0 * jnp.pi) * jnp.fft.fftfreq(n, d=length / n).astype(dtype)
+    # note: ldc grid is generated with linspace(0, L, N, endpoint=True), so the
+    # effective spacing is length/(n-1) instead of length/n as in periodic problems.
+    return (2.0 * jnp.pi) * jnp.fft.fftfreq(n, d=length / (n - 1)).astype(dtype)
 
 
 def _spectral_grad_lap_2d(x: jnp.ndarray, lx, ly):
@@ -33,6 +35,62 @@ def _spectral_grad_lap_2d(x: jnp.ndarray, lx, ly):
     dy = jnp.fft.ifftn(x_hat * iky, axes=(-2, -1)).real
     lap = jnp.fft.ifftn(x_hat * lap_mul, axes=(-2, -1)).real
     return dx, dy, lap
+
+
+def _fd_d1(f: jnp.ndarray, h, axis: int = -1):
+    """
+    非周期一阶导数: 内部二阶中心差分, 两端二阶单侧差分
+    f: (..., N, ...), 沿 axis 求导
+    """
+    g = jnp.moveaxis(f, axis, -1)
+    d = jnp.zeros_like(g)
+    d = d.at[..., 1:-1].set((g[..., 2:] - g[..., :-2]) / (2.0 * h))
+    d = d.at[..., 0].set((-3.0 * g[..., 0] + 4.0 * g[..., 1] - g[..., 2]) / (2.0 * h))
+    d = d.at[..., -1].set(
+        (3.0 * g[..., -1] - 4.0 * g[..., -2] + g[..., -3]) / (2.0 * h)
+    )
+    return jnp.moveaxis(d, -1, axis)
+
+
+def _fd_d2(f: jnp.ndarray, h, axis: int = -1):
+    """
+    非周期二阶导数: 内部二阶中心差分, 两端二阶单侧差分
+    f: (..., N, ...), 沿 axis 求导
+    """
+    g = jnp.moveaxis(f, axis, -1)
+    d = jnp.zeros_like(g)
+    d = d.at[..., 1:-1].set((g[..., 2:] - 2.0 * g[..., 1:-1] + g[..., :-2]) / (h**2))
+    d = d.at[..., 0].set(
+        (2.0 * g[..., 0] - 5.0 * g[..., 1] + 4.0 * g[..., 2] - g[..., 3]) / (h**2)
+    )
+    d = d.at[..., -1].set(
+        (2.0 * g[..., -1] - 5.0 * g[..., -2] + 4.0 * g[..., -3] - g[..., -4]) / (h**2)
+    )
+    return jnp.moveaxis(d, -1, axis)
+
+
+def _fd_grad_lap_2d(x: jnp.ndarray, lx, ly):
+    """
+    x: (..., Nx, Ny), FNO约定: axis=-2是x, axis=-1是y
+    网格为 linspace(0, L, N, endpoint=True), 间距 = L/(N-1)
+    return: dx, dy, lap (same shape as x)
+    """
+    nx, ny = x.shape[-2], x.shape[-1]
+    hx = lx / (nx - 1)
+    hy = ly / (ny - 1)
+
+    dx = _fd_d1(x, hx, axis=-2)
+    dy = _fd_d1(x, hy, axis=-1)
+    lap = _fd_d2(x, hx, axis=-2) + _fd_d2(x, hy, axis=-1)
+    return dx, dy, lap
+
+
+def _grad_lap_2d(x: jnp.ndarray, lx, ly, method: str = "fft"):
+    if method == "fft":
+        return _spectral_grad_lap_2d(x, lx=lx, ly=ly)
+    if method == "fd":
+        return _fd_grad_lap_2d(x, lx=lx, ly=ly)
+    raise ValueError(f"unknown pde_grad_method: {method!r}, expected 'fft' or 'fd'")
 
 
 def _crop_interior(x: jnp.ndarray, pad: int):
@@ -68,6 +126,7 @@ class Losses(eqx.Module):
         ly = getattr(cfg, "ly", 1.0)
         Lc = getattr(cfg, "Lc", 1.0)
         pde_pad = int(getattr(cfg, "pde_interior_pad", 0))
+        grad_method = str(getattr(cfg, "pde_grad_method", "fft")).lower()
 
         # 归一化Re -> 物理Re，再得到 nu=1/Re
         re_norm = jnp.mean(u0[:, 0], axis=(-2, -1))  # (B,)
@@ -77,9 +136,9 @@ class Losses(eqx.Module):
             re_val = re_norm
         nu = 1.0 / jnp.clip(re_val, min=1e-8)  # (B,)
 
-        ux, uy, lap_u = _spectral_grad_lap_2d(u, lx=lx, ly=ly)
-        vx, vy, lap_v = _spectral_grad_lap_2d(v, lx=lx, ly=ly)
-        px, py, _ = _spectral_grad_lap_2d(p, lx=lx, ly=ly)
+        ux, uy, lap_u = _grad_lap_2d(u, lx=lx, ly=ly, method=grad_method)
+        vx, vy, lap_v = _grad_lap_2d(v, lx=lx, ly=ly, method=grad_method)
+        px, py, _ = _grad_lap_2d(p, lx=lx, ly=ly, method=grad_method)
 
         adv_u = u * ux + v * uy
         adv_v = u * vx + v * vy
@@ -113,9 +172,10 @@ class Losses(eqx.Module):
         lx = getattr(cfg, "lx", 1.0)
         ly = getattr(cfg, "ly", 1.0)
         pde_pad = int(getattr(cfg, "pde_interior_pad", 0))
+        grad_method = str(getattr(cfg, "pde_grad_method", "fft")).lower()
 
-        ux, _, _ = _spectral_grad_lap_2d(u, lx=lx, ly=ly)
-        _, vy, _ = _spectral_grad_lap_2d(v, lx=lx, ly=ly)
+        ux, _, _ = _grad_lap_2d(u, lx=lx, ly=ly, method=grad_method)
+        _, vy, _ = _grad_lap_2d(v, lx=lx, ly=ly, method=grad_method)
 
         r_c = ux + vy
         r_c_i = _crop_interior(r_c, pde_pad)

@@ -34,7 +34,12 @@ class Config:
         add_coords=True,
         padding=(10, 0, 0) # padding for (t, x, y)
     )
-    time_scheme = "rk4" # rk4 or fd
+    # "fd": 时间二阶中心差分(现状); "ad": 平移方向 AD 二阶导(嵌套 jvp, 空间
+    # 仍用 FFT 精确求导), 对应审稿人要求的 grid 协议 AD 消融;
+    # IC 锚定由 loss_ic_ut 承担(u_t=0 的一阶差分同时把首帧焊在 u0 上)
+    time_scheme = "fd" # "fd" | "ad" ("rk4" 为历史别名, 等同 fd)
+    # 固定权重 (pde, ic_ut) —— use_gradnorm=False 时生效; 设为 None 用 (1,1)
+    weight_coef = [1.0, 20.0]
     use_causality = True
     causality_params = dict(
         num_chunks=24,

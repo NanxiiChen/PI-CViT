@@ -83,7 +83,7 @@ def train_step(
 
 
 def main():
-    key = jax.random.PRNGKey(0)
+    key = jax.random.PRNGKey(1)
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument(
         "--configs",
@@ -101,8 +101,14 @@ def main():
     configs_raw = load_configs(args.configs)
     configs = apply_overrides(configs_raw, args.set, strict=False)
     pprint(vars(configs), sort_dicts=False)
+    print("Num. of `u` samples: ", configs.num_u_samples)
+    print("Num. of pde samples: ", configs.num_pde_samples)
 
-    save_dir = configs.save_dir + time.strftime("/%Y%m%d-%H%M%S")
+    save_name = getattr(configs, "save_name", None)
+    if save_name is None:
+        save_name = time.strftime("%Y%m%d-%H%M%S")
+    
+    save_dir = configs.save_dir + "/" + save_name
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
 

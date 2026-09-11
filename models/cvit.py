@@ -11,7 +11,7 @@ class Snake(eqx.Module):
     alpha: jnp.ndarray
 
     def __init__(self, alpha_init: float = 1.0):
-        self.alpha = jnp.array(alpha_init, dtype=jnp.float32)
+        self.alpha = jnp.array(alpha_init)
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         return x + (1.0 / self.alpha) * jnp.square(jnp.sin(self.alpha * x))
@@ -26,7 +26,9 @@ def get_activation(act_name: str) -> Callable:
 # Positional embedding from masked autoencoder https://arxiv.org/abs/2111.06377
 def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     assert embed_dim % 2 == 0
-    omega = jnp.arange(embed_dim // 2, dtype=jnp.float32)
+    # `jnp.result_type(0.0)` follows the active default float dtype,
+    # so the embedding stays float32 normally but becomes float64 under x64
+    omega = jnp.arange(embed_dim // 2, dtype=jnp.result_type(0.0))
     omega /= embed_dim / 2.0
     omega = 1.0 / 10000**omega  # (D/2,)
 
@@ -42,7 +44,7 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
 
 def get_1d_sincos_pos_embed(embed_dim, length):
     pos_embed = get_1d_sincos_pos_embed_from_grid(
-            embed_dim, jnp.arange(length, dtype=jnp.float32)
+            embed_dim, jnp.arange(length, dtype=jnp.result_type(0.0))
         )
     return jnp.expand_dims(pos_embed, 0)
 
@@ -57,8 +59,8 @@ def get_2d_sincos_pos_embed(embed_dim, grid_size):
         emb = jnp.concatenate([emb_h, emb_w], axis=1)  # (H*W, D)
         return emb
 
-    grid_h = jnp.arange(grid_size[0], dtype=jnp.float32)
-    grid_w = jnp.arange(grid_size[1], dtype=jnp.float32)
+    grid_h = jnp.arange(grid_size[0], dtype=jnp.result_type(0.0))
+    grid_w = jnp.arange(grid_size[1], dtype=jnp.result_type(0.0))
     # produce grid_hh, grid_ww each with shape (H, W)
     grid = jnp.meshgrid(grid_h, grid_w, indexing="ij") # 2, H, W
     # or we can use: which produces grid_ww, grid_hh with the same shape (H, W)

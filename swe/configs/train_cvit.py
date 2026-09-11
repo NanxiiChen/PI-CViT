@@ -75,6 +75,10 @@ class Config:
     warmup_epochs = 1000 if ckpt is None else 0
 
     num_u_samples = 32
+    # 0 = free sampling: fresh draws from the GRF at every resample (unlimited input functions)
+    # >0 = reviewer ablation: pre-draw a fixed pool of this many input functions once,
+    #      then each step sample `min(num_u_samples, num_u_pool)` from the pool without replacement
+    num_u_pool = 0
     num_pde_samples = 2048
     num_ic_samples = 2048
     num_rar_samples = 0

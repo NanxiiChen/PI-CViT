@@ -3,7 +3,7 @@ import jax.numpy as jnp
 
 class Config:
     model_name = "cvit"
-    train_data_path = "./data/burgers/burgers_training.npz"
+    train_data_path = "/root/autodl-tmp/data/burgers_training.npz"
     data_dir = "./data/burgers"
     save_dir = "/root/autodl-tmp/tf-logs/burgers/cvit/data_driven"
     ckpt = None
@@ -16,8 +16,8 @@ class Config:
     Ny = 64  # number of spatial points in y
     spatial_domain = ((0, lx), (0, ly))  # x range, y range, normalized
     temporal_domain = (0.0, 1.0)  # t range
-    active_loss_names = ("data", "pde", "ic",)
-    use_multi_gpu = True # some times `nan` occurs when using single gpu, possibly due to `hessian` computation instability
+    active_loss_names = ("data", "ic",)
+    use_multi_gpu = False # some times `nan` occurs when using single gpu, possibly due to `hessian` computation instability
 
     Lc = 1.0  # xc = x / Lc
     Tc = 1.0  # tc = t / Tc
@@ -61,7 +61,7 @@ class Config:
     )
 
     # training hyperparameters
-    dataset_size = 32 # how many trajectories to use for training
+    dataset_size = 1024 # how many trajectories to use for training
     total_train_step = 15000
     batch_size = 32
     num_samples = 2048
@@ -75,6 +75,6 @@ class Config:
     test_every = 500
     resample_every = 25
     warmup_steps = 500 if "pde" in active_loss_names else 0
-
+    
     # material properties
     nu = 0.01

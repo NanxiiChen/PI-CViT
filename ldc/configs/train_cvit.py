@@ -72,7 +72,7 @@ class Config:
     decay_every = 500
     decay_rate = 0.95
     min_lr = 1e-5
-    save_every = 1000
+    save_every = 500
     log_every = 50
     test_every = 500
     resample_coord_every = 50
@@ -85,6 +85,12 @@ class Config:
         reach_max_re_epoch = 1
 
     num_u_samples = 32
+    # 0 = free LHS sampling of Re with the curriculum (compute_reynolds_range_linear)
+    # >0 = reviewer ablation: pre-draw a fixed pool of this many Re values from the
+    #      FULL re_range once, then each step sample `min(num_u_samples, num_u_pool)`
+    #      from the pool without replacement; the Re curriculum is disabled while
+    #      the pool is active
+    num_u_pool = 0
     num_pde_samples = 2048
     num_bc_samples = 256
 

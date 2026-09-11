@@ -115,9 +115,11 @@ class FunctionSampler:
     
     def resample(
         self,
-        key: jax.Array
+        key: jax.Array,
+        num_samples: int = None,
     ) -> jnp.ndarray: # B, 1, Ny, Nx
-        keys = jax.random.split(key, self.num_u_samples)
+        n = self.num_u_samples if num_samples is None else num_samples
+        keys = jax.random.split(key, n)
         samples = jax.vmap(self.sample_one_u)(keys)  # B, Ny, Nx
         samples = rearrange(samples, "B Ny Nx -> B 1 Ny Nx")
         return samples

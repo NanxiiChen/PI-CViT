@@ -38,7 +38,12 @@ class Config:
     
     Lc = 1.0
     Tc = 1.0
-    
+
+    # PDE residual derivative method: "fft" or "fd" (non-periodic finite difference)
+    pde_grad_method = "fd"
+    # drop the outermost edge points from the PDE residual (interior only)
+    pde_interior_pad = 1
+
     model_params = dict(
         in_channels=1,
         out_channels=3,
@@ -48,7 +53,8 @@ class Config:
         depth=4,
         activation="gelu",
         add_coords=True,
-        padding=(32, 32) # padding for (t, x, y)
+        padding=(32, 32), # padding for (t, x, y)
+        endpoint=True,  # non-periodic grid linspace(0, 1, N, endpoint=True), matches the ldc solver
     )
     
 

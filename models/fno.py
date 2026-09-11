@@ -1,3 +1,16 @@
+"""
+FNO 模型定义 (2D / 3D).
+
+!! 多卡训练 (use_multi_gpu=True) 性能警告 !!
+
+XLA 的 SPMD 自动切分器无法沿 FFT 算子传播 batch 维切分: 切分的张量每过一次
+FFT 都会被插入全尺寸 all-gather, 模型实际在每张卡上复制计算。实测 (2026-09,
+2x RTX PRO 6000, 无 NVLink/P2P) LDC FNO2d 两卡比单卡慢 ~5.3x (1117 vs 212
+ms/step), 单步产生 ~38 GiB 跨设备拷贝; burgers/wave/swe 的 FNO3d 同样命中。
+无 NVLink/P2P 的机器上一律 use_multi_gpu=False; CViT/DeepONet (无 FFT) 不受影响。
+
+上游追踪: https://github.com/jax-ml/jax/issues/15680
+"""
 from typing import Callable, List
 
 import equinox as eqx
@@ -6,16 +19,19 @@ import jax.numpy as jnp
 from jax.nn.initializers import glorot_normal
 
 
-def _grid_2d(nx: int, ny: int, dtype=jnp.float32):
-    x = jnp.linspace(0.0, 1.0, nx, dtype=dtype, endpoint=False)
-    y = jnp.linspace(0.0, 1.0, ny, dtype=dtype, endpoint=False)
+def _grid_2d(nx: int, ny: int, dtype=jnp.float32, endpoint: bool = False):
+    x = jnp.linspace(0.0, 1.0, nx, dtype=dtype, endpoint=endpoint)
+    y = jnp.linspace(0.0, 1.0, ny, dtype=dtype, endpoint=endpoint)
     xx, yy = jnp.meshgrid(x, y, indexing="ij")  # (nx, ny)
     return jnp.stack([xx, yy], axis=0)  # (2, nx, ny)
 
 
-def _grid_3d(nt: int, nx: int, ny: int, dtype=jnp.float32):
+def _grid_3d(nt: int, nx: int, ny: int, dtype=jnp.float32, t=None):
     # 统一时间语义：模型输出对应 t=1/nt, 2/nt, ..., 1.0（不包含 t=0）
-    t = jnp.arange(1, nt + 1, dtype=dtype) / jnp.asarray(nt, dtype=dtype)
+    # t: 可选的 (nt,) 时间坐标，作为可微输入传给 jvp（burgers 的 AD 时间导数
+    # ablation 用）；默认与训练分布一致
+    if t is None:
+        t = jnp.arange(1, nt + 1, dtype=dtype) / jnp.asarray(nt, dtype=dtype)
     x = jnp.linspace(0.0, 1.0, nx, dtype=dtype, endpoint=False)
     y = jnp.linspace(0.0, 1.0, ny, dtype=dtype, endpoint=False)
     tt, xx, yy = jnp.meshgrid(t, x, y, indexing="ij")  # (nt, nx, ny)
@@ -96,6 +112,7 @@ class FNO2d(eqx.Module):
     projection: eqx.nn.Conv2d
     add_coords: bool
     padding: tuple[int, int]  # padding for (x, y)
+    endpoint: bool  # False: periodic grid [0,1); True: include both endpoints (non-periodic, e.g. ldc)
 
     def __init__(
         self,
@@ -109,9 +126,11 @@ class FNO2d(eqx.Module):
         activation: Callable | str = jax.nn.gelu,
         add_coords: bool = True,
         padding: tuple[int, int] = (0, 0),
+        endpoint: bool = False,
     ):
         self.add_coords = add_coords
         self.padding = padding
+        self.endpoint = endpoint
         lift_in = in_channels + (2 if add_coords else 0)
 
         lifting_key, proj_key, *block_keys = jax.random.split(key, depth + 2)
@@ -134,7 +153,7 @@ class FNO2d(eqx.Module):
         # x: (C, nx, ny)
         if self.add_coords:
             _, nx, ny = x.shape
-            grid = _grid_2d(nx, ny, dtype=x.dtype)
+            grid = _grid_2d(nx, ny, dtype=x.dtype, endpoint=self.endpoint)
             x = jnp.concatenate([x, grid], axis=0)
         else:
             _, nx, ny = x.shape
@@ -315,8 +334,11 @@ class FNO(eqx.Module):
             width, out_channels, kernel_size=(1, 1, 1), key=proj_key
         )
 
-    def __call__(self, u0):
+    def __call__(self, u0, t_coords=None):
         # u0: (C, nx, ny)
+        # t_coords: 可选 (T,) 输出帧的时间坐标（归一化时间）。默认 None 时与
+        # 训练分布一致 (1/T, 2/T, ..., 1)，行为不变；传入 traced 数组时，输出
+        # 对它的 Jacobian 就是网络对时间坐标的 AD 导数（见 burgers/losses_spectral.py）
         _, nx, ny = u0.shape
         nt = self.time_steps
 
@@ -324,7 +346,7 @@ class FNO(eqx.Module):
         x = jnp.repeat(u0[:, None, :, :], nt, axis=1)
 
         if self.add_coords:
-            grid = _grid_3d(nt, nx, ny, dtype=u0.dtype)  # (3, T, nx, ny)
+            grid = _grid_3d(nt, nx, ny, dtype=u0.dtype, t=t_coords)  # (3, T, nx, ny)
             x = jnp.concatenate([x, grid], axis=0)
 
         # lift

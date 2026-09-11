@@ -4,11 +4,12 @@ import jax.numpy as jnp
 
 class Config:
     model_name = "cvit"
+    precision = "float32"  # "float32" (default) or "float64", e.g. --set precision=double
     data_dir = "./data/burgers"
     save_dir = "/root/autodl-tmp/tf-logs/burgers/cvit"
     # ckpt = save_dir + "/20260115-204856/model_epoch_3000.eqx"
     ckpt = None
-    target_ts = jnp.array([0.0, 0.2, 0.5, 0.8, 1.0])  # target time steps for evaluation
+    target_ts = (0.0, 0.2, 0.5, 0.8, 1.0)  # target time steps for evaluation, materialised under the active precision in train.py
     lx = 1.0
     ly = 1.0
     length_scale = 0.1
@@ -62,7 +63,7 @@ class Config:
     )
 
     # training hyperparameters
-    num_epochs = 20000
+    num_epochs = 15000
     initial_lr = 5e-4
     decay_every = 200
     decay_rate = 0.95
@@ -73,8 +74,13 @@ class Config:
     resample_coord_every = 100
     resample_u_every = 100
     warmup_epochs = 1500
+    init_key = 0
 
     num_u_samples = 32
+    # 0 = free sampling: fresh draws from the GRF at every resample (unlimited input functions)
+    # >0 = reviewer ablation: pre-draw a fixed pool of this many input functions once,
+    #      then each step sample `min(num_u_samples, num_u_pool)` from the pool without replacement
+    num_u_pool = 0
     num_pde_samples = 2048
     num_rar_samples = 0
     num_rar_pools = 0 # too slow to compute huge pool prediction, and no apparent benefit

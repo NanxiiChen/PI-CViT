@@ -76,8 +76,11 @@ def main():
     pprint(vars(configs), sort_dicts=False)
 
     
+    save_name = getattr(configs, "save_name", None)
+    if save_name is None:
+        save_name = time.strftime("%Y%m%d-%H%M%S")
     
-    save_dir = configs.save_dir + time.strftime("/%Y%m%d-%H%M%S")
+    save_dir = configs.save_dir + "/" + save_name
     os.makedirs(save_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=save_dir)
     

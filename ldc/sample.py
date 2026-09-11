@@ -133,17 +133,19 @@ class FunctionSampler:
         self,
         key: jax.Array,
         u_range: Tuple[float, float] = (0.0, 1.0),
+        num_samples: int = None,
     ) -> jnp.ndarray:
         # We'll dynamically adjust the range of `u` during training
         # from small to large to stabilize training.
         # u represents the `nu` coefficient here, which is a constant scalar.
+        n = self.num_u_samples if num_samples is None else num_samples
         u_min, u_max = u_range
         # u_samples = jax.random.uniform(
         #     key, (self.num_u_samples, 1), minval=u_min, maxval=u_max
         # )
         u_samples = lhs_sampling(
-            jnp.array([u_min]), jnp.array([u_max]), 
-            self.num_u_samples, key
+            jnp.array([u_min]), jnp.array([u_max]),
+            n, key
         )
         return u_samples
     
