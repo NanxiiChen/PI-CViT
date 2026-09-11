@@ -48,6 +48,9 @@ class Config:
         include_t0=True,     # 输出 T+1 帧, 标签 0, 1/T, ..., 1
     )
     time_scheme = "ad"  # 平移方向嵌套 jvp 二阶时间导数
+    # 与 burgers 的 ad_derivative 键对齐: wave 的二阶 AD 只有 "shift" 一种
+    # (平移方向 ones 切向量的嵌套 jvp); 显式写出以免误配成 diagonal 被忽略
+    ad_derivative = "shift"
     # gradnorm 动态加权三项 (pde, ic, ic_ut); burgers include_t0 A/B 实测
     # gradnorm 优于固定权重(0.7267 vs 0.7496 同 epoch), 且初值项锁定后
     # 权重自动向 pde 倾斜

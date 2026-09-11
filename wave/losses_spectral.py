@@ -159,6 +159,14 @@ class Losses(eqx.Module):
                     "time_scheme='ad' requires FNO(add_coords=True): "
                     "the time-coordinate input channel is the AD entry point"
                 )
+            deriv = str(getattr(cfg, "ad_derivative", "shift"))
+            if deriv != "shift":
+                # 二阶导目前只实现了平移方向(ones 切向量的嵌套 jvp);
+                # 逐帧对角需要每帧一次嵌套 jvp(成本 T 倍), 未实现
+                raise ValueError(
+                    "wave 的 AD 二阶导仅支持 ad_derivative='shift'"
+                    f"(平移方向嵌套 jvp), 收到 {deriv!r}"
+                )
             pred, utt = jax.vmap(
                 _time_second_derivative_ad, in_axes=(None, 0, None)
             )(model, u0, model.time_steps)
