@@ -9,9 +9,8 @@ class Config:
       loss_ic 直接用输出帧 0 对齐给定初值(精确值锚, 无第二套坐标网格,
       无 mode 分离), loss_pde 的 AD 平移导数也在同一网格上
     - 运行: python -m burgers.train_pifno --configs train_fno_ad --set save_name=xxx
-    - 与 train_fno(fd/rk4, 旧 T 帧模型)的差异仅: 模型多输出一帧 t=0 +
-      时间导数换成 AD; 做严格受控对比时也可给 fd 配 include_t0=True
-      (losses 的 fd/rk4 分支已兼容该约定)
+    - 消融对照的 fd/rk4 臂沿用旧协议(模型输出 T 帧, train_fno config),
+      include_t0 只用于 AD 臂; fd/rk4 分支不做 include_t0 配套
     """
     model_name = "fno"
     data_dir = "./data/burgers"

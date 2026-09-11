@@ -274,15 +274,16 @@ class Losses(eqx.Module):
             raise ValueError("pred must contain at least one future step")
 
         # 统一约定：显式拼接 t=0 初值，形成完整时间序列 [t0, t1, ..., tT]
-        # （fd/rk4 在完整序列上定义；ad 不使用初值帧——初值无模型时间导数）
-        # include_t0 模型的 pred 已含 t=0 帧, 用给定的 u0 覆盖之(保持 fd/rk4
-        # 语义: 初值以数据为准), 后续帧从 pred 取
-        if bool(getattr(model, "include_t0", False)):
-            pred_full = jnp.concatenate(
-                [u0[:, :, None, :, :], pred[:, :, 1:]], axis=2
-            )  # (B,C,T+1,Nx,Ny)
-        else:
-            pred_full = jnp.concatenate([u0[:, :, None, :, :], pred], axis=2)  # (B,C,T+1,Nx,Ny)
+        # （fd/rk4 在完整序列上定义；ad 不使用初值帧——初值无模型时间导数；
+        #  TODO: fd/rk4 分支尚未适配 include_t0 模型, 见下方守卫）
+        if self.time_scheme in ("fd", "rk4") and bool(
+            getattr(model, "include_t0", False)
+        ):
+            raise NotImplementedError(
+                "TODO: fd/rk4 分支尚未适配 include_t0 模型(需处理 T+1 帧序列"
+                "与 dt/ts 约定); 当前仅 time_scheme='ad' 支持 include_t0"
+            )
+        pred_full = jnp.concatenate([u0[:, :, None, :, :], pred], axis=2)  # (B,C,T+1,Nx,Ny)
 
         nu = getattr(cfg, "nu", 0.01)
         lc = getattr(cfg, "Lc", 1.0)
@@ -290,9 +291,8 @@ class Losses(eqx.Module):
         lx = getattr(cfg, "lx", 1.0)
         ly = getattr(cfg, "ly", 1.0)
 
-        # 统一时间步长: 未来帧 T = model.time_steps 个, 帧距 dt = 1/T
-        # (include_t0 时 pred 有 T+1 帧, 不能用 pred.shape[2] 当 T)
-        dt = 1.0 / model.time_steps
+        # 统一时间步长：pred 有 T 帧未来时间 => dt = 1/T
+        dt = 1.0 / t
 
         if self.time_scheme == "ad":
             # u_t 来自网络对时间坐标输入的 AD 导数（对角 Jacobian），只在 K 个
@@ -335,7 +335,7 @@ class Losses(eqx.Module):
             rv = vt / tc + (u * vx + v * vy) / lc - nu * lap_v / (lc**2)
 
             res_sq_t = jnp.mean(ru[:, 1:] ** 2 + rv[:, 1:] ** 2, axis=(-2, -1))  # (B,T)
-            ts = (jnp.arange(1, model.time_steps + 1, dtype=pred.dtype) * dt).reshape(-1, 1)
+            ts = (jnp.arange(1, t + 1, dtype=pred.dtype) * dt).reshape(-1, 1)
 
         else:  # rk4
             states = jnp.swapaxes(pred_full, 1, 2)  # (B,T+1,C,Nx,Ny)
@@ -355,7 +355,7 @@ class Losses(eqx.Module):
             defect = s_np1 - s_rk4  # (B,T,C,Nx,Ny)
 
             res_sq_t = jnp.mean(defect[:, :, 0] ** 2 + defect[:, :, 1] ** 2, axis=(-2, -1))  # (B,T)
-            ts = (jnp.arange(1, model.time_steps + 1, dtype=pred.dtype) * dt).reshape(-1, 1)
+            ts = (jnp.arange(1, t + 1, dtype=pred.dtype) * dt).reshape(-1, 1)
 
         # -------------------------
         # causal / non-causal
