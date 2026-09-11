@@ -289,15 +289,20 @@ class FNO(eqx.Module):
     one-shot spatio-temporal predictor
     input:  u0, shape (C, nx, ny), 对应 t=0
     output: u,  shape (C, T, nx, ny), 对应 t=1/T,2/T,...,1.0
+
+    include_t0=True 时输出 T+1 帧, 对应 t=0, 1/T, ..., 1.0 —— t=0 帧与 PDE
+    残差在同一次查询里, loss_ic 可直接用输出帧 0 对齐给定初值, 不再需要
+    平移坐标网格的第二套查询(见 wave/losses_spectral.py 的 AD 协议)
     """
 
     lifting: eqx.nn.Conv3d
     fno_blocks: List[FNOBlock3d]
     projection: eqx.nn.Conv3d
     time_steps: int
+    include_t0: bool
     add_coords: bool
-    padding: tuple[int, int, int] # padding for (t, x, y) 
-    
+    padding: tuple[int, int, int] # padding for (t, x, y)
+
     def __init__(
         self,
         key: jax.random.PRNGKey,
@@ -312,8 +317,10 @@ class FNO(eqx.Module):
         activation: Callable | str = jax.nn.gelu,
         add_coords: bool = True,
         padding: tuple[int, int, int] = (0, 0, 0),
+        include_t0: bool = False,
     ):
         self.time_steps = time_steps
+        self.include_t0 = include_t0
         self.add_coords = add_coords
         self.padding = padding
 
@@ -336,17 +343,26 @@ class FNO(eqx.Module):
 
     def __call__(self, u0, t_coords=None):
         # u0: (C, nx, ny)
-        # t_coords: 可选 (T,) 输出帧的时间坐标（归一化时间）。默认 None 时与
-        # 训练分布一致 (1/T, 2/T, ..., 1)，行为不变；传入 traced 数组时，输出
-        # 对它的 Jacobian 就是网络对时间坐标的 AD 导数（见 burgers/losses_spectral.py）
+        # t_coords: 可选输出帧时间坐标（归一化时间），长度须等于输出帧数
+        # (include_t0 时 T+1, 否则 T)。默认 None 时与训练分布一致, 行为不变;
+        # 传入 traced 数组时, 输出对它的 Jacobian 就是网络对时间坐标的 AD 导数
         _, nx, ny = u0.shape
-        nt = self.time_steps
+        # include_t0: T+1 帧 (标签 0, 1/T, ..., 1); 否则 T 帧 (1/T, ..., 1)
+        nt = self.time_steps + 1 if self.include_t0 else self.time_steps
 
-        # repeat initial field along time: (C, T, nx, ny)
+        # repeat initial field along time: (C, nt, nx, ny)
         x = jnp.repeat(u0[:, None, :, :], nt, axis=1)
 
         if self.add_coords:
-            grid = _grid_3d(nt, nx, ny, dtype=u0.dtype, t=t_coords)  # (3, T, nx, ny)
+            t_default = None
+            if t_coords is None and self.include_t0:
+                t_default = (
+                    jnp.arange(0, nt, dtype=u0.dtype)
+                    / jnp.asarray(self.time_steps, dtype=u0.dtype)
+                )
+            grid = _grid_3d(
+                nt, nx, ny, dtype=u0.dtype, t=t_coords if t_coords is not None else t_default
+            )  # (3, nt, nx, ny)
             x = jnp.concatenate([x, grid], axis=0)
 
         # lift

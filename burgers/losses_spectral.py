@@ -144,17 +144,27 @@ def _time_derivative_shift(model: FNO, u0: jnp.ndarray, num_t: int):
     便宜 ad_frame_stride 倍，无需子采样）。
 
     u0: (C, Nx, Ny)
-    return: (primal, ut)，ut[c, k] = 平移导数在帧 k（标签 k/T）的值
+    return: (primal, ut)
+        include_t0 模型: (C, T+1, Nx, Ny), ut[c, k] = 平移导数在帧 k
+        (标签 k/T, k=0..T); 旧模型: (C, T, Nx, Ny), 帧 k 标签 (k+1)/T
     """
     dtype = u0.dtype
-    t_base = jnp.arange(1, num_t + 1, dtype=dtype) / jnp.asarray(num_t, dtype=dtype)
+    if bool(getattr(model, "include_t0", False)):
+        # include_t0: T+1 帧覆盖 [0,1] —— 单一网格, IC 与残差同查询
+        t_base = (
+            jnp.arange(0, num_t + 1, dtype=dtype) / jnp.asarray(num_t, dtype=dtype)
+        )
+    else:
+        t_base = (
+            jnp.arange(1, num_t + 1, dtype=dtype) / jnp.asarray(num_t, dtype=dtype)
+        )
 
     def fwd(tv):
         return model(u0, t_coords=tv)
 
     _, ut = jax.jvp(
         jax.checkpoint(fwd), (t_base,), (jnp.ones_like(t_base),)
-    )  # (C, T, Nx, Ny)
+    )
     primal = model(u0)
     return primal, ut
 
@@ -224,23 +234,33 @@ class Losses(eqx.Module):
             # 单次 jvp, 网格模型实现时间演化的自然机制, 默认); "diagonal" 逐帧
             # 对角元(每帧一次 one-hot jvp, 需配点子采样控成本, 帧局部理想化)
             deriv_mode = str(getattr(cfg, "ad_derivative", "shift"))
+            include_t0 = bool(getattr(model, "include_t0", False))
             if deriv_mode == "shift":
-                # 平移导数: 单次 ones 切向量 jvp, 全帧残差, 无需配点子采样
+                # 平移导数: 单次 ones 切向量 jvp, 全帧残差, 无需配点子采样;
+                # include_t0 模型输出 T+1 帧(标签 0..1), 残差只取未来帧 [1:]
                 pred, uts = jax.vmap(
                     _time_derivative_shift, in_axes=(None, 0, None)
                 )(model, u0, model.time_steps)
-                frame_idx = jnp.arange(model.time_steps)
+                frame_idx = (
+                    jnp.arange(1, model.time_steps + 1)
+                    if include_t0
+                    else jnp.arange(model.time_steps)
+                )
             elif deriv_mode == "diagonal":
+                if include_t0:
+                    raise ValueError(
+                        "ad_derivative='diagonal' 未适配 include_t0 模型, 请用 'shift'"
+                    )
                 pred, uts = jax.vmap(
                     _time_derivative_ad, in_axes=(None, 0, None, None, None)
                 )(model, u0, model.time_steps, stride, idx_key)
                 frame_idx = _ad_collocation_idx(model.time_steps, stride, idx_key)  # (K,)
             else:
                 raise ValueError("ad_derivative must be 'diagonal' or 'shift'")
-            # pred: (B, C, T, Nx, Ny); uts: (B, C, K, Nx, Ny), K=T(shift) 或
-            # ceil(T/stride)(diagonal)
-            # 注: 初值信息由下方第一步 trapezoid 锚带入(与残差同网格, 无
-            # mode 分离), u0 作为网络输入只提供 conditioning 不构成约束
+            # pred: (B, C, T(+1), Nx, Ny); uts: (B, C, K, Nx, Ny)
+            # 注: 初值锚定 —— include_t0 模型由 loss_ic 直接约束输出帧 0
+            # (同一次查询, 无第二套坐标网格); 旧模型由 loss_anchor 的第一步
+            # trapezoid 积分锚带入
         else:
             pred = jax.vmap(model)(u0)  # (B, C, T, Nx, Ny), 统一约定：对应 t1..tT
             uts = None
@@ -255,7 +275,14 @@ class Losses(eqx.Module):
 
         # 统一约定：显式拼接 t=0 初值，形成完整时间序列 [t0, t1, ..., tT]
         # （fd/rk4 在完整序列上定义；ad 不使用初值帧——初值无模型时间导数）
-        pred_full = jnp.concatenate([u0[:, :, None, :, :], pred], axis=2)  # (B,C,T+1,Nx,Ny)
+        # include_t0 模型的 pred 已含 t=0 帧, 用给定的 u0 覆盖之(保持 fd/rk4
+        # 语义: 初值以数据为准), 后续帧从 pred 取
+        if bool(getattr(model, "include_t0", False)):
+            pred_full = jnp.concatenate(
+                [u0[:, :, None, :, :], pred[:, :, 1:]], axis=2
+            )  # (B,C,T+1,Nx,Ny)
+        else:
+            pred_full = jnp.concatenate([u0[:, :, None, :, :], pred], axis=2)  # (B,C,T+1,Nx,Ny)
 
         nu = getattr(cfg, "nu", 0.01)
         lc = getattr(cfg, "Lc", 1.0)
@@ -263,16 +290,17 @@ class Losses(eqx.Module):
         lx = getattr(cfg, "lx", 1.0)
         ly = getattr(cfg, "ly", 1.0)
 
-        # 统一时间步长：pred 有 T 帧未来时间 => dt = 1/T
-        dt = 1.0 / t
+        # 统一时间步长: 未来帧 T = model.time_steps 个, 帧距 dt = 1/T
+        # (include_t0 时 pred 有 T+1 帧, 不能用 pred.shape[2] 当 T)
+        dt = 1.0 / model.time_steps
 
         if self.time_scheme == "ad":
             # u_t 来自网络对时间坐标输入的 AD 导数（对角 Jacobian），只在 K 个
             # 配点帧上求残差；空间项与 fd 分支一致用精确的谱导数
             u = pred[:, 0][:, frame_idx]  # (B, K, Nx, Ny)
             v = pred[:, 1][:, frame_idx]
-            ut = uts[:, 0]  # (B, K, Nx, Ny), du/dtau
-            vt = uts[:, 1]
+            ut = uts[:, 0][:, frame_idx]  # (B, K, Nx, Ny), du/dtau
+            vt = uts[:, 1][:, frame_idx]
 
             ux, uy, lap_u = _spectral_grad_lap_2d(u, lx=lx, ly=ly)
             vx, vy, lap_v = _spectral_grad_lap_2d(v, lx=lx, ly=ly)
@@ -284,9 +312,14 @@ class Losses(eqx.Module):
             rv = rv * AD_PDE_SCALE
 
             res_sq_t = jnp.mean(ru ** 2 + rv ** 2, axis=(-2, -1))  # (B, K)
-            ts = ((frame_idx + 1).astype(pred.dtype) * dt).reshape(-1, 1)
-            # 注: 第一步积分锚在独立的 loss_anchor 里, 与残差作为两个 loss
-            # 走 gradnorm 加权(见 loss_fn)
+            # 帧时间标签: include_t0 时帧 k 即 t=k/T(frame_idx 已含 +1);
+            # 旧约定帧 j 为 t=(j+1)/T
+            if bool(getattr(model, "include_t0", False)):
+                ts = (frame_idx.astype(pred.dtype) * dt).reshape(-1, 1)
+            else:
+                ts = ((frame_idx + 1).astype(pred.dtype) * dt).reshape(-1, 1)
+            # 注: 初值锚定在独立 loss 里与残差双项加权(见 loss_fn):
+            # include_t0 模型用 loss_ic(帧 0 == u0), 旧模型用 loss_anchor
 
         elif self.time_scheme == "fd":
             u = pred_full[:, 0, :, :, :]  # (B,T+1,Nx,Ny)
@@ -302,7 +335,7 @@ class Losses(eqx.Module):
             rv = vt / tc + (u * vx + v * vy) / lc - nu * lap_v / (lc**2)
 
             res_sq_t = jnp.mean(ru[:, 1:] ** 2 + rv[:, 1:] ** 2, axis=(-2, -1))  # (B,T)
-            ts = (jnp.arange(1, t + 1, dtype=pred.dtype) * dt).reshape(-1, 1)
+            ts = (jnp.arange(1, model.time_steps + 1, dtype=pred.dtype) * dt).reshape(-1, 1)
 
         else:  # rk4
             states = jnp.swapaxes(pred_full, 1, 2)  # (B,T+1,C,Nx,Ny)
@@ -322,7 +355,7 @@ class Losses(eqx.Module):
             defect = s_np1 - s_rk4  # (B,T,C,Nx,Ny)
 
             res_sq_t = jnp.mean(defect[:, :, 0] ** 2 + defect[:, :, 1] ** 2, axis=(-2, -1))  # (B,T)
-            ts = (jnp.arange(1, t + 1, dtype=pred.dtype) * dt).reshape(-1, 1)
+            ts = (jnp.arange(1, model.time_steps + 1, dtype=pred.dtype) * dt).reshape(-1, 1)
 
         # -------------------------
         # causal / non-causal
@@ -354,6 +387,11 @@ class Losses(eqx.Module):
         # 把给定初值 u0 与模型第一帧焊接, 起 rk4 defect 链第一环的作用; 与残差
         # 同在标准网格查询内(不引入第二套时间网格), rhs 空间导数用谱方法直接
         # 算, 无需对网络求导。作为独立 loss 与 loss_pde 走 gradnorm 加权
+        if bool(getattr(model, "include_t0", False)):
+            raise ValueError(
+                "loss_anchor 假定帧 0 = t=1/T; include_t0 模型的帧 0 是 t=0, "
+                "请用 loss_ic"
+            )
         nu = getattr(cfg, "nu", 0.01)
         lc = getattr(cfg, "Lc", 1.0)
         tc = getattr(cfg, "Tc", 1.0)
@@ -369,6 +407,26 @@ class Losses(eqx.Module):
         anchor = pred[:, :, 0] - u0 - 0.5 * dt * (rhs0 + rhs1)  # (B,C,Nx,Ny)
         return jnp.mean(anchor ** 2), {}
 
+    @eqx.filter_jit
+    def loss_ic(
+        self,
+        model: FNO,
+        u0: jnp.ndarray,   # (B, C, Nx, Ny), 对应 t=0
+        cfg: Any,
+        **kwargs,
+    ):
+        # ad + include_t0 专用值锚: 模型输出帧 0 即 u_theta(x, t=0), 与 PDE
+        # 残差同一次查询(单一时间网格覆盖 [0,1]), 直接约束其等于给定初值 ——
+        # 相比 loss_anchor 的 trapezoid 缺陷(锚在 O(dt^3) 松弛上)这是精确的
+        # 值锚定, 且彻底不存在第二套坐标网格(mode 分离的根源)
+        if not bool(getattr(model, "include_t0", False)):
+            raise ValueError(
+                "loss_ic 要求 FNO(include_t0=True): 输出帧 0 必须对应 t=0 "
+                "(旧模型的帧 0 是 t=1/T, 请用 loss_anchor)"
+            )
+        pred = jax.vmap(model)(u0)
+        return jnp.mean((pred[:, :, 0] - u0) ** 2), {}
+
     def loss_fn(
         self,
         model: FNO,
@@ -378,13 +436,18 @@ class Losses(eqx.Module):
         **kwargs,
     ):
         if self.time_scheme == "ad":
-            # 双项 (loss_pde, loss_anchor) + gradnorm 自适应加权, 镜像坐标协议
-            # losses.py 的 loss_fn; 残差收敛后锚的梯度变小 -> 权重自动升高,
-            # 锚定压强不会被淹没(固定权重版实测后期 L2 反升 0.63->0.90)
+            # 双项 (loss_pde, 锚项) + gradnorm/固定加权, 镜像坐标协议 losses.py;
+            # 锚项按模型约定选取: include_t0 -> loss_ic (帧 0 == u0, 精确值锚,
+            # 单一网格); 旧模型 -> loss_anchor (第一步 trapezoid 积分锚)
+            anchor_term = (
+                "loss_ic"
+                if bool(getattr(model, "include_t0", False))
+                else "loss_anchor"
+            )
             losses = []
             grads = []
             aux_vars = {}
-            for name in ("loss_pde", "loss_anchor"):
+            for name in ("loss_pde", anchor_term):
                 vg_fn = eqx.filter_value_and_grad(getattr(self, name), has_aux=True)
                 (loss, aux), grad = vg_fn(model, u0=u0, cfg=cfg, **kwargs)
                 grad = jax.tree.map(lambda g: jnp.nan_to_num(g), grad)
@@ -565,4 +628,64 @@ if __name__ == "__main__":
     print(
         f"shift vs grid-shift FD (float64, delta={delta:.0e}): "
         f"u_t relative diff = {float(rel_shift):.3e}"
+    )
+
+    # 3) include_t0 协议: T+1 帧单一网格(标签 0..1), loss_ic 值锚与 shift AD
+    #    残差同查询; 验证输出形状/默认网格等价/loss 项选择/梯度有限,
+    #    以及平移导数在新标签约定下的对拍
+    # x64 已开, 新构造模型的初始化器会给出 float64 权重 —— 与 f32 输入会
+    # 在 conv 处 dtype 冲突, 统一 cast 回 u0 的 dtype
+    model_t0 = jax.tree.map(
+        lambda a: a.astype(u0.dtype) if isinstance(a, jax.Array) else a,
+        FNO(
+            key=key,
+            in_channels=2,
+            out_channels=2,
+            time_steps=T,
+            modes_t=4,
+            modes_x=4,
+            modes_y=4,
+            width=8,
+            depth=2,
+            add_coords=True,
+            padding=(2, 0, 0),
+            include_t0=True,
+        ),
+    )
+    out_t0 = model_t0(u0[0])
+    t0_grid = jnp.arange(0, T + 1, dtype=u0.dtype) / T
+    out_t0_explicit = model_t0(u0[0], t_coords=t0_grid)
+    print(
+        "include_t0: out shape (C,T+1,Nx,Ny):", tuple(out_t0.shape),
+        " default == explicit t_coords:",
+        bool(jnp.allclose(out_t0, out_t0_explicit, atol=1e-6)),
+    )
+
+    losses_t0 = Losses(time_scheme="ad")
+    cfg_t0 = type("Config", (), {**vars(cfg), "use_causality": False})
+    (l_t0, aux_t0), g_t0 = losses_t0.loss_fn(model_t0, u0=u0, cfg=cfg_t0)
+    l_t0.block_until_ready()
+    gf_t0 = jax.tree_util.tree_all(
+        jax.tree.map(lambda g: jnp.all(jnp.isfinite(g)), g_t0)
+    )
+    has_ic = "loss_ic" in aux_t0 and "loss_anchor" not in aux_t0
+    print(
+        f"[ad include_t0] loss={float(l_t0):.4e}  grad_finite={bool(gf_t0)}  "
+        f"anchor term = loss_ic: {has_ic}"
+    )
+
+    # 平移导数在新约定下与整体平移差分对拍 (x64 已开)
+    model_t0_64 = jax.tree.map(
+        lambda a: a.astype(jnp.float64) if isinstance(a, jax.Array) else a, model_t0
+    )
+    _, ut_t0_64 = _time_derivative_shift(model_t0_64, u0_64[0], T)
+    t0_grid64 = jnp.arange(0, T + 1, dtype=jnp.float64) / T
+    ones64 = jnp.ones(T + 1, dtype=jnp.float64)
+    p = model_t0_64(u0_64[0], t_coords=t0_grid64 + delta * ones64)
+    m = model_t0_64(u0_64[0], t_coords=t0_grid64 - delta * ones64)
+    fd_t0 = (p - m) / (2.0 * delta)
+    rel_t0 = jnp.linalg.norm(ut_t0_64 - fd_t0) / jnp.linalg.norm(fd_t0)
+    print(
+        f"include_t0 shift vs FD (float64, delta={delta:.0e}): "
+        f"u_t relative diff = {float(rel_t0):.3e}"
     )

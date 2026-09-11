@@ -209,11 +209,10 @@ def main():
             # rk4/fd 单损失路径不含这些键(逐项 log 便于看两项的相对进展)
             # 注意: 循环变量不能叫 key —— 会遮蔽外层的 PRNG key
             parts = []
-            for term in ("loss_pde", "loss_anchor"):
+            for term in ("loss_pde", "loss_anchor", "loss_ic"):
                 val = aux_vars.get(term, None)
-                if val is None:
-                    break
-                parts.append(f"{term}: {val:.4e}")
+                if val is not None:
+                    parts.append(f"{term}: {val:.4e}")
             w_vals = aux_vars.get("weights", None)
             if w_vals is not None:
                 parts.append(
@@ -228,7 +227,7 @@ def main():
             )
 
             writer.add_scalar("loss/total", total_loss.item(), epoch)
-            for term in ("loss_pde", "loss_anchor"):
+            for term in ("loss_pde", "loss_anchor", "loss_ic"):
                 val = aux_vars.get(term, None)
                 if val is not None:
                     writer.add_scalar(f"loss/{term}", float(val), epoch)
