@@ -36,7 +36,9 @@ class Config:
     )
     # "fd": 时间二阶中心差分(现状); "ad": 平移方向 AD 二阶导(嵌套 jvp, 空间
     # 仍用 FFT 精确求导), 对应审稿人要求的 grid 协议 AD 消融;
-    # IC 锚定由 loss_ic_ut 承担(u_t=0 的一阶差分同时把首帧焊在 u0 上)
+    # IC 锚定由 loss_ic_ut 承担(u_t=0 的一阶差分同时把首帧焊在 u0 上)。
+    # include_t0 + AD 的协议见 configs/train_fno_ad.py(该协议下初值与初速度
+    # 都在同一网格的帧 0 上精确施加); TODO: fd 分支尚未适配 include_t0 模型
     time_scheme = "fd" # "fd" | "ad" ("rk4" 为历史别名, 等同 fd)
     # 固定权重 (pde, ic_ut) —— use_gradnorm=False 时生效; 设为 None 用 (1,1)
     weight_coef = [1.0, 20.0]

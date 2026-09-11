@@ -250,8 +250,11 @@ def evaluate_fno_model(
     xx = xx / Lc
     yy = yy / Lc
     
-    sols = jax.vmap(model)(us) # B, C, T, W, H
-    sols = jnp.concatenate([us[:, :, None, :, :], sols], axis=2) # B, C, T+1, W, H
+    sols = jax.vmap(model)(us) # B, C, T(或 T+1), W, H
+    if not getattr(model, "include_t0", False):
+        # 旧约定: 输出帧对应 t=1/T..1, 前面拼接给定的 u0 作为 t=0 帧;
+        # include_t0 模型自己输出 t=0 帧, 不再拼接(否则帧-时间错位)
+        sols = jnp.concatenate([us[:, :, None, :, :], sols], axis=2) # B, C, T+1, W, H
     pred_times = jnp.linspace(0, 1.0, sols.shape[2]) * Tc # (T+1,)
     pred_idxs = jnp.array(
         [jnp.argmin(jnp.abs(pred_times - t)) for t in target_ts]

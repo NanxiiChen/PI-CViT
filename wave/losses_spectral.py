@@ -57,13 +57,44 @@ def _time_second_derivative_fd(x: jnp.ndarray, dt):
     return xtt
 
 
+def _ad_time_grid(model: FNO, num_t: int, dtype):
+    # AD 求导用的输出帧时间标签; include_t0 模型输出 T+1 帧覆盖 [0,1],
+    # 旧模型输出 T 帧覆盖 (0,1]
+    if bool(getattr(model, "include_t0", False)):
+        return jnp.arange(0, num_t + 1, dtype=dtype) / jnp.asarray(num_t, dtype=dtype)
+    return jnp.arange(1, num_t + 1, dtype=dtype) / jnp.asarray(num_t, dtype=dtype)
+
+
+def _time_derivative_shift(model: FNO, u0: jnp.ndarray, num_t: int):
+    """
+    FNO 输出的平移一阶时间导数（网格整体平移方向的方向导数）:
+
+        u_tau = d/ddelta out(u0, t_grid + delta*1) |_{delta=0}
+
+    单次 ones 切向量 jvp; include_t0 模型的帧 0 标签为 0, 故分量 0 即
+    ∂u/∂tau(x, tau=0) —— 波动方程的初速度条件 u_t(0)=0 可由此精确施加
+    （相比一阶差分的 O(dt) 近似）。
+
+    u0: (C, Nx, Ny)
+    return: (primal, ut)，帧数 = T(旧模型) 或 T+1(include_t0)
+    """
+    t_base = _ad_time_grid(model, num_t, u0.dtype)
+
+    def fwd(tv):
+        return model(u0, t_coords=tv)
+
+    _, ut = jax.jvp(jax.checkpoint(fwd), (t_base,), (jnp.ones_like(t_base),))
+    primal = model(u0)
+    return primal, ut
+
+
 def _time_second_derivative_ad(model: FNO, u0: jnp.ndarray, num_t: int):
     """
     FNO 输出的 AD 二阶时间导数（平移方向的二阶方向导数）:
 
         u_tt = d^2/ddelta^2 out(u0, t_grid + delta*1) |_{delta=0}
 
-    外层 jvp 给出平移一阶导数（对应 du/dtau，见 burgers 的 shift 模式），再套
+    外层 jvp 给出平移一阶导数（对应 du/dtau，见 _time_derivative_shift），再套
     一层 jvp 得二阶；对平移协变的神经场，这等于 du^2/dtau^2 在各帧的采样。
     波动方程是时间二阶，PDE 残差需要 u_tt；空间项保持 FFT（周期问题精确）。
 
@@ -72,10 +103,11 @@ def _time_second_derivative_ad(model: FNO, u0: jnp.ndarray, num_t: int):
     按 O(delta^2) 收敛，已验证）。
 
     u0: (1, Nx, Ny)
-    return: (primal, utt)，均对应帧 1..T（标签 1/T..1）
+    return: (primal, utt)，帧数 = T(旧模型, 标签 1/T..1) 或
+            T+1(include_t0, 标签 0..1)
     """
     dtype = u0.dtype
-    t_base = jnp.arange(1, num_t + 1, dtype=dtype) / jnp.asarray(num_t, dtype=dtype)
+    t_base = _ad_time_grid(model, num_t, dtype)
 
     def g(delta):
         return jax.checkpoint(lambda d: model(u0, t_coords=t_base + d))(delta)
@@ -120,8 +152,8 @@ class Losses(eqx.Module):
     ) -> Tuple[jnp.ndarray, dict]:
         if self.time_scheme == "ad":
             # AD 二阶时间导数(平移方向嵌套 jvp), 见 _time_second_derivative_ad;
-            # 空间项保持 FFT(周期问题精确)。IC 锚定由 loss_ic_ut 承担(u_t=0
-            # 的一阶差分同时把首帧焊在 u0 上), 故此处只算 PDE 残差
+            # 空间项保持 FFT(周期问题精确)。IC 锚定由独立的 loss_ic /
+            # loss_ic_ut 承担, 故此处只算 PDE 残差
             if not model.add_coords:
                 raise ValueError(
                     "time_scheme='ad' requires FNO(add_coords=True): "
@@ -129,17 +161,31 @@ class Losses(eqx.Module):
                 )
             pred, utt = jax.vmap(
                 _time_second_derivative_ad, in_axes=(None, 0, None)
-            )(model, u0, model.time_steps)  # (B,1,T,Nx,Ny), 帧 1..T
+            )(model, u0, model.time_steps)
             if pred.ndim != 5:
                 raise ValueError(f"FNO output must be (B,C,T,Nx,Ny), got {pred.shape}")
             if pred.shape[1] != 1:
                 raise ValueError(f"Wave expects C=1, got C={pred.shape[1]}")
-            b, c, t, nx, ny = pred.shape
+            include_t0 = bool(getattr(model, "include_t0", False))
+            if include_t0:
+                # T+1 帧覆盖 [0,1]; 残差只取未来帧 1..T(与 fd 分支同集合;
+                # 帧 0 的残差也可用, 为与 fd 口径一致暂不计入)
+                u_use = pred[:, 0, 1:]      # (B,T,Nx,Ny)
+                utt_use = utt[:, 0, 1:]     # (B,T,Nx,Ny)
+            else:
+                u_use = pred[:, 0]          # (B,T,Nx,Ny) 帧 1..T
+                utt_use = utt[:, 0]
+            b, c, t, nx, ny = pred.shape[0], pred.shape[1], u_use.shape[1], pred.shape[3], pred.shape[4]
             if t < 2:
                 raise ValueError("Wave PDE needs at least 2 future steps (T>=2).")
-            u_use = pred[:, 0]          # (B,T,Nx,Ny)
-            utt_use = utt[:, 0]         # (B,T,Nx,Ny)
         else:
+            # TODO: fd 分支尚未适配 include_t0 模型(需处理 T+1 帧序列与 dt/ts
+            # 约定); 当前仅 time_scheme='ad' 支持 include_t0
+            if bool(getattr(model, "include_t0", False)):
+                raise NotImplementedError(
+                    "TODO: fd 分支尚未适配 include_t0 模型; "
+                    "include_t0 目前仅支持 time_scheme='ad'"
+                )
             pred = jax.vmap(model)(u0)  # (B, C, T, Nx, Ny), 对应 t1..tT
             if pred.ndim != 5:
                 raise ValueError(f"FNO output must be (B,C,T,Nx,Ny), got {pred.shape}")
@@ -205,13 +251,20 @@ class Losses(eqx.Module):
         cfg: Any,
         **kwargs,
     ) -> Tuple[jnp.ndarray, dict]:
-        # IC 锚定项, 同时承担两个角色:
-        #   1) 物理初速度条件 u_t(0) = 0（波动方程的第二初值）
-        #   2) 值锚定: 一阶差分 (u1-u0)/(dt*tc) 把首帧焊在给定初值 u0 上,
-        #      等价于 burgers/ice 里显式的第一步积分锚 —— AD 残差本身与 u0
-        #      解耦, 靠这一项排除平凡解(u≡0 被 u0≠0 排除, u≡const 被 Δu≠0
-        #      排除), 故 time_scheme="ad" 无需额外新增 anchor
-        #   (注: 一阶差分形式对速度是 O(dt) 精度, 是既有协议, 不改变消融口径)
+        # 物理初速度条件 u_t(0) = 0（波动方程的第二初值）。
+        # include_t0 模型: 帧 0 标签为 0, 用平移一阶 AD 导数在该帧的取值 -
+        # 即精确的 ∂u/∂tau(x,0)（误差仅来自网络表示与优化, 无差分截断偏差）;
+        # 旧模型: 帧 0 是 t=1/T, 只能一阶差分 (u1-u0)/(dt*tc), 是 O(dt) 近似,
+        # 且顺带把首帧焊在 u0 上（当时的双重角色; include_t0 下值锚定由
+        # 独立的 loss_ic 承担）
+        tc = getattr(cfg, "Tc", 1.0)
+        if bool(getattr(model, "include_t0", False)):
+            _, ut = jax.vmap(
+                _time_derivative_shift, in_axes=(None, 0, None)
+            )(model, u0, model.time_steps)  # (B,1,T+1,Nx,Ny)
+            ut0 = ut[:, 0, 0, :, :] / tc    # (B,Nx,Ny) 物理 u_t(x,0)
+            return jnp.mean(ut0**2), {}
+
         pred = jax.vmap(model)(u0)  # (B,1,T,Nx,Ny), 对应 t1..tT
         if pred.ndim != 5 or pred.shape[1] != 1:
             raise ValueError(f"Wave IC-ut expects (B,1,T,Nx,Ny), got {pred.shape}")
@@ -220,7 +273,6 @@ class Losses(eqx.Module):
         if t < 1:
             raise ValueError("Need at least one future step to compute u_t at t=0.")
 
-        tc = getattr(cfg, "Tc", 1.0)
         dt = 1.0 / t  # normalized tau step
 
         u1 = pred[:, 0, 0, :, :]      # (B,Nx,Ny), tau=dt
@@ -230,6 +282,24 @@ class Losses(eqx.Module):
         ut0 = (u1 - u_init) / (dt * tc)
         loss = jnp.mean(ut0**2)
         return loss, {}
+
+    @eqx.filter_jit
+    def loss_ic(
+        self,
+        model: FNO,
+        u0: jnp.ndarray,   # (B,1,Nx,Ny), t=0
+        cfg: Any,
+        **kwargs,
+    ) -> Tuple[jnp.ndarray, dict]:
+        # ad + include_t0 专用值锚: 模型输出帧 0 即 u_theta(x, 0), 与 PDE 残差
+        # 同一次查询(单一时间网格覆盖 [0,1]), 直接约束其等于给定初值 ——
+        # 精确值锚定, 且不存在第二套坐标网格(mode 分离的根源)
+        if not bool(getattr(model, "include_t0", False)):
+            raise ValueError(
+                "loss_ic 要求 FNO(include_t0=True): 输出帧 0 必须对应 t=0"
+            )
+        pred = jax.vmap(model)(u0)  # (B,1,T+1,Nx,Ny)
+        return jnp.mean((pred[:, :, 0] - u0) ** 2), {}
 
     def loss_fn(
         self,
@@ -372,3 +442,70 @@ if __name__ == "__main__":
             f"AD 2nd deriv vs shift-FD (float64, delta={delta:.0e}): "
             f"relative diff = {float(rel):.3e}"
         )
+
+    # 3) include_t0 协议: T+1 帧单一网格; 初值(值 + 速度)都在帧 0 上施加,
+    #    与 PDE 残差同查询; 验证 loss 项组合、梯度有限与新网格下的导数对拍
+    model_t0 = jax.tree.map(
+        lambda a: a.astype(u0.dtype) if isinstance(a, jax.Array) else a,
+        FNO(
+            key=jax.random.PRNGKey(0),
+            in_channels=C,
+            out_channels=C,
+            time_steps=T,
+            modes_t=4,
+            modes_x=4,
+            modes_y=4,
+            width=8,
+            depth=2,
+            add_coords=True,
+            padding=(2, 0, 0),
+            include_t0=True,
+        ),
+    )
+    out_t0 = model_t0(u0[0])
+    t0_grid = jnp.arange(0, T + 1, dtype=u0.dtype) / T
+    print(
+        "include_t0: out shape (C,T+1,Nx,Ny):", tuple(out_t0.shape),
+        " default == explicit t_coords:",
+        bool(jnp.allclose(out_t0, model_t0(u0[0], t_coords=t0_grid), atol=1e-6)),
+    )
+
+    losses_t0 = Losses(time_scheme="ad")
+    cfg_t0 = type("Config", (), {**vars(cfg), "use_causality": False})
+    (total_t0, (losses_t0v, w_t0, aux_t0)), g_t0 = losses_t0.loss_fn(
+        model_t0, u0=u0, cfg=cfg_t0,
+        active_losses=("loss_pde", "loss_ic", "loss_ic_ut"),
+    )
+    total_t0.block_until_ready()
+    gf_t0 = jax.tree_util.tree_all(
+        jax.tree.map(lambda g: jnp.all(jnp.isfinite(g)), g_t0)
+    )
+    print(
+        f"[ad include_t0] total={float(total_t0):.4e} "
+        f"pde={float(losses_t0v[0]):.4e} ic={float(losses_t0v[1]):.4e} "
+        f"ic_ut={float(losses_t0v[2]):.4e} w={[float(w) for w in w_t0]} "
+        f"grad_finite={bool(gf_t0)}"
+    )
+
+    # include_t0 网格下 二阶导/一阶导 与中心差分对拍 (x64)
+    model_t0_64 = jax.tree.map(
+        lambda a: a.astype(jnp.float64) if isinstance(a, jax.Array) else a, model_t0
+    )
+    _, utt_t0_64 = _time_second_derivative_ad(model_t0_64, u0_64[0], T)
+    _, ut_t0_64 = _time_derivative_shift(model_t0_64, u0_64[0], T)
+    g64 = jnp.arange(0, T + 1, dtype=jnp.float64) / T
+    ones64 = jnp.ones(T + 1, dtype=jnp.float64)
+    delta = 1e-3
+    p = model_t0_64(u0_64[0], t_coords=g64 + delta * ones64)
+    m = model_t0_64(u0_64[0], t_coords=g64 - delta * ones64)
+    c = model_t0_64(u0_64[0], t_coords=g64)
+    rel_utt = jnp.linalg.norm(utt_t0_64 - (p + m - 2 * c) / delta**2) / jnp.linalg.norm(
+        (p + m - 2 * c) / delta**2
+    )
+    rel_ut = jnp.linalg.norm(ut_t0_64 - (p - m) / (2 * delta)) / jnp.linalg.norm(
+        (p - m) / (2 * delta)
+    )
+    print(
+        f"include_t0 (float64, delta={delta:.0e}): utt rel diff={float(rel_utt):.3e}  "
+        f"ut rel diff={float(rel_ut):.3e}"
+    )
