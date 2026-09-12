@@ -78,10 +78,13 @@ def evaluate_model(
     ref_sols = ref_sols[:, idxs, ...] # B, T, C, H, W
 
     B, T, C, H, W = ref_sols.shape
-    us = ref_sols[:, 0, ...] # B, C=2, H, W
+    # the npz reference data is stored in float32; conv layers require inputs
+    # to match the parameter dtype, so widen to the model's precision
+    model_dtype = jax.tree.leaves(eqx.filter(model, eqx.is_array))[0].dtype
+    us = ref_sols[:, 0, ...].astype(model_dtype) # B, C=2, H, W
     xx, yy = jnp.meshgrid(x, y, indexing="xy")  # (H, W)
-    xx = xx / Lc
-    yy = yy / Lc
+    xx = xx.astype(model_dtype) / Lc
+    yy = yy.astype(model_dtype) / Lc
     x_pde = jnp.stack([
         xx.reshape(-1),
         yy.reshape(-1),
