@@ -39,10 +39,13 @@ For other configurations, please refer to `burgers/configs/`.
 
 If you find this work useful in your research, please consider citing:
 ```bibtex
-@article{chen2026trainingpinos,
+@article{chen2027training,
   title={On the training of physics-informed neural operators for solving parametric partial differential equations},
   author={Chen, Nanxi and Cui, Chuanjie and Chen, Airong and Wang, Sifan and Ma, Rujin},
-  journal={arXiv preprint arXiv:2606.06164},
-  year={2026}
+  journal={Computer Methods in Applied Mechanics and Engineering},
+  volume={464},
+  pages={119515},
+  year={2027},
+  publisher={Elsevier}
 }
 ```
